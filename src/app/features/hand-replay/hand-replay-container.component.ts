@@ -15,12 +15,13 @@ export class HandReplayContainerComponent implements OnInit, OnDestroy {
   @Input({ required: true }) apiBase = '';
   @Input({ required: true }) clubId = '';
   @Input({ required: true }) handId = '';
+  @Input() unionId: string | null = null;
   @Output() readonly close = new EventEmitter<void>();
 
   constructor(readonly store: HandReplayStore) {}
 
   ngOnInit(): void {
-    this.store.load(this.apiBase, this.clubId, this.handId);
+    this.store.load(this.apiBase, this.clubId, this.handId, this.unionId);
   }
 
   ngOnDestroy(): void {
@@ -28,6 +29,6 @@ export class HandReplayContainerComponent implements OnInit, OnDestroy {
   }
 
   retry(): void {
-    this.store.load(this.apiBase, this.clubId, this.handId);
+    this.store.load(this.apiBase, this.clubId, this.handId, this.unionId);
   }
 }

@@ -20,14 +20,14 @@ export class HandReplayStore {
 
   constructor(private readonly api: HandReplayApiService) {}
 
-  load(apiBase: string, clubId: string, handId: string): void {
+  load(apiBase: string, clubId: string, handId: string, unionId: string | null = null): void {
     this.pause();
     this.request?.unsubscribe();
     this.loading.set(true);
     this.error.set(null);
     this.replayData.set(null);
     this.currentFrameIndex.set(0);
-    this.request = this.api.getReplay(apiBase, clubId, handId).subscribe({
+    this.request = this.api.getReplay(apiBase, clubId, handId, unionId).subscribe({
       next: (replay) => {
         this.replayData.set(replay);
         this.loading.set(false);

@@ -72,6 +72,28 @@
         <div class="jackpot-sign"><span>BAD BEAT</span><strong>JACKPOT</strong><b>₱0,450,555</b></div>
       </section>
 
+      <div class="lobby-scope-tabs" role="tablist" aria-label="Table source">
+        <button type="button" role="tab" [attr.aria-selected]="lobbyScope() === 'club'" [class.selected]="lobbyScope() === 'club'" (click)="selectLobbyScope('club')">Club Tables</button>
+        <button type="button" role="tab" [attr.aria-selected]="lobbyScope() === 'union'" [class.selected]="lobbyScope() === 'union'" (click)="selectLobbyScope('union')">Union Tables</button>
+      </div>
+      @if (lobbyScope() === 'union') {
+        <div class="union-picker-row">
+          @if (unions().length > 0) {
+            <label><span>UNION</span>
+              @if (unions().length > 1) {
+                <select aria-label="Select union" [value]="selectedUnionId()" (change)="selectUnion($any($event.target).value)">
+                  @for (union of unions(); track union.union_id) { <option [value]="union.union_id">{{ union.name }}</option> }
+                </select>
+              } @else {
+                <strong>{{ unions()[0].name }}</strong>
+              }
+            </label>
+            <span class="union-admin-badge">{{ session.canManageUnion(selectedUnionId()) ? 'UNION ADMIN' : 'MEMBER CLUB' }}</span>
+          } @else {
+            <span class="union-empty-note">No active unions are linked to this club.</span>
+          }
+        </div>
+      }
       <div class="lobby-categories" role="tablist" aria-label="Game type">
         @for (game of ['ALL', 'NLH', 'PLO', 'Badugi', 'Mata', 'Flash']; track game) {
           <button type="button" role="tab" [attr.aria-selected]="lobbyGame() === game" [class.selected]="lobbyGame() === game" (click)="selectLobbyGame(game)">{{ game }}</button>
@@ -88,21 +110,42 @@
         <button class="color-jackpot-card" type="button" (click)="selectLobbyGame('NLH')"><span>♢</span><strong>JACKPOT</strong><small>COLOR GAME</small></button>
       </div>
 
-      <div class="lobby-section-heading"><div><span class="eyebrow">SAMPLE TABLE DIRECTORY</span><h2>{{ lobbyGame() === 'MTT' ? 'Tournaments' : 'Cash games' }}</h2></div>
-        @if (session.canManageTables()) {
+      <div class="lobby-section-heading"><div><span class="eyebrow">{{ lobbyScope() === 'union' ? 'SHARED UNION LOBBY' : 'CLUB TABLE DIRECTORY' }}</span><h2>{{ lobbyScope() === 'union' ? 'Union tables' : (lobbyGame() === 'MTT' ? 'Tournaments' : 'Cash games') }}</h2></div>
+        @if (lobbyScope() === 'club' && session.canManageTables()) {
           <button type="button" (click)="toggleControls()">＋ Create table</button>
+        } @else if (lobbyScope() === 'union' && session.canManageUnion(selectedUnionId())) {
+          <button type="button" (click)="toggleUnionCreate()">＋ Create union table</button>
         }
       </div>
+      @if (lobbyScope() === 'union' && unionCreateOpen()) {
+        <form class="union-create-form" (ngSubmit)="createUnionTable()">
+          <label>Table ID<input name="unionTableId" [(ngModel)]="unionTableId" required></label>
+          <label>Table name<input name="unionTableName" [(ngModel)]="unionTableName" required maxlength="100"></label>
+          <label>Small blind<input type="number" min="1" name="unionSmallBlind" [(ngModel)]="smallBlind" required></label>
+          <label>Big blind<input type="number" min="1" name="unionBigBlind" [(ngModel)]="bigBlind" required></label>
+          <label>Buy-in min<input type="number" min="1" name="unionBuyInMin" [(ngModel)]="buyInMin" required></label>
+          <label>Buy-in max<input type="number" min="1" name="unionBuyInMax" [(ngModel)]="buyInMax" required></label>
+          <button type="submit" [disabled]="busy() !== ''">{{ busy() === 'union-create' ? 'Creating…' : 'Create shared table' }}</button>
+        </form>
+      }
       <div class="table-list">
-        @for (table of lobbyTables; track table.id) {
+        @for (table of visibleLobbyTables; track table.id) {
           @if (lobbyGame() === 'ALL' || lobbyGame() === 'MTT' || table.game === lobbyGame()) {
             <article class="lobby-table-card" [class.featured-table]="table.featured">
               <div class="table-card-top"><span class="game-badge">{{ table.game }}</span><span class="table-state" [class.running]="table.status === 'RUNNING'">{{ table.status }}</span></div>
               <h3>{{ table.name }}</h3>
+              @if (lobbyScope() === 'union') { <span class="table-origin-tag">Hosted by {{ table.originClubId }}</span> }
               <div class="table-card-stats"><span><small>BLINDS</small><b>{{ table.stakes }}</b></span><span><small>BUY-IN</small><b>{{ table.buyIn }}</b></span><span><small>SEATS</small><b>{{ table.players }}</b></span></div>
-              <button type="button" (click)="openTable(table.id)">Join table <span>↗</span></button>
+              <div class="lobby-table-actions">
+                <button type="button" (click)="openTable(table.id, lobbyScope() === 'union' ? selectedUnionId() : null)">Join table <span>↗</span></button>
+                @if (lobbyScope() === 'union' && table.seatedCount === 0 && session.canManageUnion(table.unionId ?? null)) {
+                  <button class="union-delete-button" type="button" (click)="deleteUnionTable(table)" [disabled]="busy() !== ''" [attr.aria-label]="'Delete empty table ' + table.name" title="Delete empty table">×</button>
+                }
+              </div>
             </article>
           }
+        } @empty {
+          <p class="union-empty-note">{{ lobbyScope() === 'union' ? 'No shared tables are open in this union.' : 'No club tables are open.' }}</p>
         }
       </div>
       @if (notice()) { <p class="lobby-notice" role="status">{{ notice() }}</p> }
@@ -119,6 +162,7 @@
       [apiBase]="baseUrl()"
       [clubId]="clubId"
       [handId]="snapshot()?.hand_id ?? ''"
+      [unionId]="snapshot()?.union_id ?? null"
       (close)="closeReplay()" />
   } @else {
   <header class="topbar">
@@ -129,8 +173,8 @@
       <span class="brand-name">COWBOYS <b>POKER</b></span>
     </a>
     <div class="table-identity">
-      <span class="eyebrow">PRIVATE TABLE</span>
-      <strong>{{ clubId }} / {{ tableId }}</strong>
+      <span class="eyebrow">{{ tableUnionId() ? 'UNION TABLE' : 'PRIVATE TABLE' }}</span>
+      <strong>{{ tableUnionId() ?? clubId }} / {{ tableId }}</strong>
     </div>
     <div class="connection-strip" [attr.aria-label]="'API ' + health() + ', table ' + socketStatus()">
       <span class="status-indicator" [class.online]="health() === 'online'" [class.offline]="health() === 'offline'"></span>
@@ -166,7 +210,7 @@
         </div>
       </section>
 
-      @if (session.canManageTables()) {
+      @if (canManageCurrentTable()) {
       <form class="control-section" (ngSubmit)="createTable()">
         <div class="section-title"><span class="step-number">02</span><h2>Game setup</h2></div>
         <div class="split-fields">
@@ -212,7 +256,7 @@
       <div class="table-toolbar">
         <div>
           <span class="eyebrow">NO-LIMIT TEXAS HOLD’EM</span>
-          <h2>{{ tableId }} <span class="table-live" [class.live]="snapshot()?.is_hand_running">{{ snapshot()?.is_hand_running ? 'LIVE HAND' : 'WAITING' }}</span></h2>
+          <h2>{{ snapshot()?.table_name ?? tableId }} <span class="table-live" [class.live]="snapshot()?.is_hand_running">{{ snapshot()?.is_hand_running ? 'LIVE HAND' : 'WAITING' }}</span></h2>
         </div>
         <div class="table-toolbar-actions">
           <div class="blind-summary"><span>BLINDS</span><strong>{{ smallBlind }} <i>/</i> {{ bigBlind }}</strong></div>
@@ -249,6 +293,7 @@
                 <div class="player-meta">
                   <strong>{{ player.username }} @if (player.user_id === userId) { <small>YOU</small> }</strong>
                   <span>{{ player.stack | number }} chips</span>
+                  @if (snapshot()?.is_union_table && player.club_id) { <small class="seat-club-tag">{{ player.club_id }}</small> }
                 </div>
                 @if (player.seat === snapshot()?.active_turn_seat) { <span class="turn-marker">ACTING</span> }
                 <div class="hole-cards">
@@ -276,12 +321,31 @@
           <span class="eyebrow">{{ isMyTurn ? 'YOUR ACTION' : 'TABLE ACTIONS' }}</span>
           <strong>{{ isMyTurn ? 'Make your move' : (snapshot()?.is_hand_running ? 'Waiting for the table' : 'Start a hand to play') }}</strong>
         </div>
-        <div class="action-controls">
-          <button class="fold-action" type="button" (click)="sendAction('FOLD')" [disabled]="!isMyTurn || socketStatus() !== 'connected'">Fold</button>
-          <button class="check-action" type="button" (click)="sendAction('CHECK')" [disabled]="!isMyTurn || socketStatus() !== 'connected'">Check</button>
-          <button class="call-action" type="button" (click)="sendAction('CALL')" [disabled]="!isMyTurn || socketStatus() !== 'connected'">Call</button>
-          <label class="raise-control"><span>Raise to</span><input type="number" min="1" [max]="currentPlayer?.stack ?? 999999" name="raiseTo" [(ngModel)]="raiseTo"><button type="button" (click)="sendAction('RAISE')" [disabled]="!isMyTurn || socketStatus() !== 'connected'">Raise</button></label>
-        </div>
+
+        @if (!isMyTurn) {
+          <div class="pre-action-options" aria-label="Pre-action options">
+            <button type="button" class="pre-action-button" [class.selected]="preAction() === 'check-fold'" (click)="togglePreAction('check-fold')">
+              <span class="pre-action-box" aria-hidden="true"></span>
+              <span>F/C</span>
+            </button>
+            <button type="button" class="pre-action-button" [class.selected]="preAction() === 'fold'" (click)="togglePreAction('fold')">
+              <span class="pre-action-box" aria-hidden="true"></span>
+              <span>Check</span>
+            </button>
+            <button type="button" class="pre-action-button" [class.selected]="preAction() === 'call-any'" (click)="togglePreAction('call-any')">
+              <span class="pre-action-box" aria-hidden="true"></span>
+              <span>Call Any</span>
+            </button>
+          </div>
+        }
+
+        @if (isMyTurn) {
+          <div class="action-controls">
+            <button class="fold-action" type="button" (click)="sendAction('FOLD')" [disabled]="socketStatus() !== 'connected'">F/C</button>
+            <button class="check-action" type="button" (click)="sendAction('CHECK')" [disabled]="socketStatus() !== 'connected'">Check</button>
+            <button class="call-action" type="button" (click)="sendAction('CALL')" [disabled]="socketStatus() !== 'connected'">Fold</button>
+          </div>
+        }
       </div>
       @if (!isMyTurn && snapshot()?.is_hand_running) {
         <p class="turn-hint">Actions are enabled for the current player only. The server validates every move.</p>
@@ -296,11 +360,11 @@
           <div><span class="eyebrow">CLUB PERMISSIONS</span><h2 id="role-sheet-title">Member roles</h2></div>
           <button type="button" (click)="closeRoleGuide()" aria-label="Close member roles">×</button>
         </header>
-        <p class="role-sheet-note">Your current role is <strong>{{ session.role() }}</strong>. Role assignment is managed by the club.</p>
+        <p class="role-sheet-note">Your club role is <strong>{{ session.role() }}</strong>. Role assignment is managed by the club.@if (session.unionAdminIds().length > 0) { You are also a UNION_ADMIN for {{ session.unionAdminIds().length }} union(s). }</p>
         <div class="role-list">
           @for (roleCard of roleCards; track roleCard.role) {
-            <article class="role-card" [class.current-role]="session.role() === roleCard.role">
-              <div class="role-card-heading"><span class="role-symbol">{{ roleCard.role === 'OWNER' ? '♛' : roleCard.role === 'MANAGER' ? '⚑' : roleCard.role === 'AGENT' ? '♢' : '♙' }}</span><h3>{{ roleCard.title }}</h3>@if (session.role() === roleCard.role) { <span class="current-role-tag">CURRENT</span> }</div>
+            <article class="role-card" [class.current-role]="isCurrentRoleCard(roleCard.role)">
+              <div class="role-card-heading"><span class="role-symbol">{{ roleCard.role === 'UNION_ADMIN' ? '♜' : roleCard.role === 'OWNER' ? '♛' : roleCard.role === 'MANAGER' ? '⚑' : roleCard.role === 'AGENT' ? '♢' : '♙' }}</span><h3>{{ roleCard.title }}</h3>@if (isCurrentRoleCard(roleCard.role)) { <span class="current-role-tag">CURRENT</span> }</div>
               <p>{{ roleCard.rights }}</p>
             </article>
           }
