@@ -1,0 +1,18 @@
+<section class="replay-controls" aria-label="Replay controls">
+  <div class="replay-step-buttons">
+    <button type="button" aria-label="Previous action" title="Previous action" [disabled]="currentFrameIndex() === 0" (click)="prev.emit()">|◀</button>
+    <button class="replay-play" type="button" [attr.aria-label]="isPlaying() ? 'Pause replay' : 'Play replay'" [title]="isPlaying() ? 'Pause replay' : 'Play replay'" [disabled]="totalFrames() < 2" (click)="playPause.emit()">
+      {{ isPlaying() ? 'Ⅱ' : '▶' }}
+    </button>
+    <button type="button" aria-label="Next action" title="Next action" [disabled]="currentFrameIndex() >= totalFrames() - 1" (click)="next.emit()">▶|</button>
+  </div>
+  <label class="replay-seek">
+    <span>FRAME {{ currentFrameIndex() + 1 }} / {{ totalFrames() }}</span>
+    <input aria-label="Seek replay frame" type="range" min="0" [max]="totalFrames() > 0 ? totalFrames() - 1 : 0" [value]="currentFrameIndex()" [disabled]="totalFrames() < 2" (input)="seek.emit(+$any($event.target).value)">
+  </label>
+  <label class="replay-speed">
+    <span>SPEED</span>
+    <input aria-label="Playback speed" type="range" min="0.5" max="2" step="0.5" [value]="speed()" (input)="speedChange.emit(+$any($event.target).value)">
+    <output>{{ speed() }}×</output>
+  </label>
+</section>

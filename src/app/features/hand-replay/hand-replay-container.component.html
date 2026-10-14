@@ -1,0 +1,38 @@
+<main class="hand-replay-page">
+  <header class="replay-header">
+    <button class="replay-back" type="button" aria-label="Close hand replay" title="Close replay" (click)="close.emit()">‹</button>
+    <div class="replay-heading"><span>HAND HISTORY</span><strong>{{ handId.slice(0, 12) }}</strong></div>
+    <span class="replay-status">{{ store.replayData()?.is_showdown ? 'SHOWDOWN' : 'NO SHOWDOWN' }}</span>
+  </header>
+
+  @if (store.loading()) {
+    <p class="replay-message" role="status">Loading hand replay…</p>
+  } @else if (store.error()) {
+    <section class="replay-error" role="alert">
+      <strong>Replay unavailable</strong>
+      <p>{{ store.error() }}</p>
+      <button type="button" (click)="retry()">Retry</button>
+    </section>
+  } @else if (store.replayData(); as replay) {
+    <section class="replay-summary" aria-label="Hand result">
+      <div><span>POT</span><strong>{{ replay.pot_total | number }}</strong></div>
+      <div><span>BOARD</span><strong>{{ replay.final_board.length }} CARDS</strong></div>
+      <div><span>FRAMES</span><strong>{{ replay.total_frames }}</strong></div>
+    </section>
+    <app-replay-controls
+      [currentFrameIndex]="store.currentFrameIndex()"
+      [totalFrames]="replay.total_frames"
+      [isPlaying]="store.isPlaying()"
+      [speed]="store.playbackSpeed()"
+      (playPause)="store.togglePlayback()"
+      (prev)="store.prevFrame()"
+      (next)="store.nextFrame()"
+      (seek)="store.seekTo($event)"
+      (speedChange)="store.setPlaybackSpeed($event)" />
+    <app-replay-table-canvas [frame]="store.currentFrame()" />
+    <app-replay-action-log
+      [frames]="replay.frames"
+      [currentFrameIndex]="store.currentFrameIndex()"
+      (seek)="store.seekTo($event)" />
+  }
+</main>

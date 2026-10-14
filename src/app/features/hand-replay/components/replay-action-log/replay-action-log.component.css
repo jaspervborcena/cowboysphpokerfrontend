@@ -1,0 +1,11 @@
+:host { display: block; min-height: 0; }
+.replay-log { height: 100%; min-height: 90px; display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid #1d4058; background: #081d30; color: #b7cfdd; }
+.replay-log > header, .replay-log-row { display: grid; grid-template-columns: .8fr 1.5fr .65fr; gap: 8px; align-items: center; }
+.replay-log > header { padding: 7px 9px; border-bottom: 1px solid #1c3b52; color: #6f9bb4; font-size: 6px; font-weight: 800; letter-spacing: .8px; }
+.replay-log-rows { overflow: auto; scrollbar-width: thin; scrollbar-color: #28617e transparent; }
+.replay-log-row { width: 100%; min-height: 28px; padding: 4px 9px; border: 0; border-bottom: 1px solid #18344a; background: transparent; color: #b8d1df; text-align: left; cursor: pointer; }
+.replay-log-row:hover, .replay-log-row.selected { background: #10314a; }
+.action-name { color: #80d8f1; font-size: 8px; font-weight: 800; }
+.action-user { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.action-amount { color: #e2d2a5; font-size: 8px; font-variant-numeric: tabular-nums; text-align: right; }
+.replay-log-empty { padding: 8px; color: #819eae; font-size: 8px; }

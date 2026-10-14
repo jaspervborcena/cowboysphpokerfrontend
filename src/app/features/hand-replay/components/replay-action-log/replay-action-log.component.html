@@ -1,0 +1,14 @@
+<section class="replay-log" aria-label="Hand action history">
+  <header><span>ACTION</span><span>PLAYER</span><span>AMOUNT</span></header>
+  <div class="replay-log-rows">
+    @for (frame of actionFrames; track frame.frame_index) {
+      <button type="button" class="replay-log-row" [class.selected]="currentFrameIndex() === frame.frame_index" (click)="seek.emit(frame.frame_index)">
+        <span class="action-name">{{ frame.last_action?.action }}</span>
+        <span class="action-user">{{ playerName(frame, frame.last_action!.user_id) }}</span>
+        <span class="action-amount">{{ frame.last_action?.amount ?? '—' }}</span>
+      </button>
+    } @empty {
+      <p class="replay-log-empty">The hand has no recorded player actions.</p>
+    }
+  </div>
+</section>

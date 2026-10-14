@@ -1,0 +1,311 @@
+<div class="app-shell">
+  @if (screen() === 'home') {
+    <header class="member-topbar">
+      <div class="member-avatar">{{ username.slice(0, 1).toUpperCase() }}</div>
+      <div class="member-identity"><strong>{{ username }}</strong><span>ID: {{ userId }}</span><small>{{ session.role() }}</small></div>
+      <div class="member-wallet"><span>♢</span><div><small>CLUB CHIPS</small><strong>{{ currentPlayer ? (currentPlayer.stack | number) : '—' }}</strong></div><button type="button" aria-label="Open club lobby" (click)="enterLobby()">+</button></div>
+      <button class="member-menu" type="button" (click)="toggleControls()" aria-label="Open member controls">☰</button>
+    </header>
+    <main class="home-screen">
+      <div class="club-hall">
+        <div class="hall-icons"><button type="button" aria-label="Home">⌂</button><button type="button" aria-label="Search club">⌕</button></div>
+        <div class="club-sign"><span>MEMBER CLUB</span><strong>CLUB</strong><b>♢ 8 ♢</b></div>
+        <button class="club-display" type="button" (click)="enterLobby()">
+          <span class="club-ribbon">♛ <i>♦</i> ♠</span>
+          <span class="club-poster"><b>CARD GAMES<br>MANILA</b><small>POKER CLUB</small><i>♠ ♥ ♣ ♦</i></span>
+          <span class="club-count">♧ 1,754 members online</span>
+          <span class="club-display-name">Card Games Manila</span>
+          <span class="club-display-id">CLUB ID: 843625</span>
+        </button>
+        <div class="hall-ropes" aria-hidden="true"><span></span><span></span></div>
+      </div>
+
+      <div class="home-action-tiles">
+        <button class="home-play-tile lobby-tile" type="button" (click)="enterLobby()">
+          <span class="tile-art playing-art"><i>A♠</i><i>A♥</i><b>♠</b></span><strong>LOBBY</strong><small>Cash games</small>
+        </button>
+        <button class="home-play-tile tournament-tile" type="button" (click)="enterLobby('MTT')">
+          <span class="tile-art trophy-art">♜</span><strong>TOURNAMENT</strong><small>MTT schedule</small>
+        </button>
+      </div>
+
+      <div class="role-destination">
+        @if (session.canManageClub()) {
+          <span class="role-stamp">OWNER DESK <b>CLUB ADMIN</b></span>
+        } @else if (session.canManageTables()) {
+          <span class="role-stamp">MANAGER DESK <b>TABLE OPERATIONS</b></span>
+        } @else if (session.canUseAgentDesk()) {
+          <span class="role-stamp">AGENT DESK <b>DOWNLINE &amp; CHIPS</b></span>
+        } @else {
+          <span class="role-stamp">CLUB MEMBER <b>PLAYER ACCESS</b></span>
+        }
+        <button class="view-roles-button" type="button" (click)="openRoleGuide()">View roles <span>↗</span></button>
+        @if (session.canManageTables()) {
+          <button type="button" (click)="enterLobby()">Manage tables <span>↗</span></button>
+        } @else if (session.canUseAgentDesk()) {
+          <button type="button" (click)="notice.set('Agent services require the authenticated club ledger.')">Open agent desk <span>↗</span></button>
+        } @else {
+          <span class="role-status">{{ session.role() }} · DEMO SESSION</span>
+        }
+      </div>
+    </main>
+    <nav class="member-nav" aria-label="Member navigation">
+      @if (session.canUseAgentDesk() || session.canManageTables() || session.canManageClub()) {
+        <button type="button" (click)="notice.set('Shop is not available in this backend.')"><span>▣</span>SHOP</button>
+        <button type="button" (click)="notice.set('Messages are not available in this backend.')"><span>✉</span>MESSAGE</button>
+        <button type="button" (click)="enterLobby('MTT')"><span>♜</span>MTT</button>
+        <button type="button" (click)="notice.set('Member career is not available in this backend.')"><span>♙</span>CAREER</button>
+      }
+      <button type="button" (click)="openRoleGuide()"><span>♧</span>ROLES</button>
+    </nav>
+  } @else if (screen() === 'lobby') {
+    <header class="lobby-topbar">
+      <button class="lobby-back" type="button" (click)="goHome()" aria-label="Back to clubhouse">‹</button>
+      <div class="lobby-club-mark">♛</div>
+      <div class="lobby-club-name"><strong>Card Games Manila</strong><span>ID: 843625 · {{ session.role() }}</span></div>
+      <div class="lobby-wallet"><span>♢</span><strong>{{ currentPlayer ? (currentPlayer.stack | number) : '—' }}</strong></div>
+      <button class="lobby-search" type="button" aria-label="Search tables">⌕</button>
+    </header>
+    <main class="lobby-screen">
+      <section class="club-lobby-banner">
+        <div class="lobby-banner-copy"><span>WELCOME TO MANILA</span><h1>Card Games<br>Manila Club</h1><small>♧ 1,754 members online</small></div>
+        <div class="jackpot-sign"><span>BAD BEAT</span><strong>JACKPOT</strong><b>₱0,450,555</b></div>
+      </section>
+
+      <div class="lobby-categories" role="tablist" aria-label="Game type">
+        @for (game of ['ALL', 'NLH', 'PLO', 'Badugi', 'Mata', 'Flash']; track game) {
+          <button type="button" role="tab" [attr.aria-selected]="lobbyGame() === game" [class.selected]="lobbyGame() === game" (click)="selectLobbyGame(game)">{{ game }}</button>
+        }
+      </div>
+      <div class="lobby-filters">
+        <span class="filter-label">STAKE</span>
+        <button type="button" class="selected">Micro</button><button type="button">Small</button><button type="button">Mid</button><button type="button">High</button>
+      </div>
+      <div class="lobby-status-row"><span><i></i> Running</span><span><i></i> Open seats</span><button type="button" aria-label="Filter tables">▽</button></div>
+
+      <div class="lobby-promo-row">
+        <button class="private-table-card" type="button" (click)="openTable('table-1')"><span>♙ PRIVATE</span><strong>TABLE</strong><small>Invite-only games</small></button>
+        <button class="color-jackpot-card" type="button" (click)="selectLobbyGame('NLH')"><span>♢</span><strong>JACKPOT</strong><small>COLOR GAME</small></button>
+      </div>
+
+      <div class="lobby-section-heading"><div><span class="eyebrow">SAMPLE TABLE DIRECTORY</span><h2>{{ lobbyGame() === 'MTT' ? 'Tournaments' : 'Cash games' }}</h2></div>
+        @if (session.canManageTables()) {
+          <button type="button" (click)="toggleControls()">＋ Create table</button>
+        }
+      </div>
+      <div class="table-list">
+        @for (table of lobbyTables; track table.id) {
+          @if (lobbyGame() === 'ALL' || lobbyGame() === 'MTT' || table.game === lobbyGame()) {
+            <article class="lobby-table-card" [class.featured-table]="table.featured">
+              <div class="table-card-top"><span class="game-badge">{{ table.game }}</span><span class="table-state" [class.running]="table.status === 'RUNNING'">{{ table.status }}</span></div>
+              <h3>{{ table.name }}</h3>
+              <div class="table-card-stats"><span><small>BLINDS</small><b>{{ table.stakes }}</b></span><span><small>BUY-IN</small><b>{{ table.buyIn }}</b></span><span><small>SEATS</small><b>{{ table.players }}</b></span></div>
+              <button type="button" (click)="openTable(table.id)">Join table <span>↗</span></button>
+            </article>
+          }
+        }
+      </div>
+      @if (notice()) { <p class="lobby-notice" role="status">{{ notice() }}</p> }
+    </main>
+    <nav class="lobby-nav" aria-label="Club navigation">
+      <button type="button" class="active"><span>♧</span>Tables</button>
+      @if (session.canUseAgentDesk()) { <button type="button"><span>♢</span>Agent desk</button> }
+      @if (session.canManageClub()) { <button type="button"><span>⚙</span>Club admin</button> }
+      <button type="button" (click)="openRoleGuide()"><span>♧</span>Roles</button>
+      <button type="button" (click)="goHome()"><span>♙</span>Member</button>
+    </nav>
+  } @else if (screen() === 'replay') {
+    <app-hand-replay-container
+      [apiBase]="baseUrl()"
+      [clubId]="clubId"
+      [handId]="snapshot()?.hand_id ?? ''"
+      (close)="closeReplay()" />
+  } @else {
+  <header class="topbar">
+    <button class="menu-toggle" type="button" (click)="toggleControls()" [attr.aria-expanded]="controlsOpen()" aria-label="Open table setup">☰</button>
+    <button class="game-back" type="button" (click)="enterLobby()" aria-label="Back to club lobby">‹</button>
+    <a class="brand" href="/" aria-label="Cowboys Poker home">
+      <span class="brand-mark" aria-hidden="true">C♠</span>
+      <span class="brand-name">COWBOYS <b>POKER</b></span>
+    </a>
+    <div class="table-identity">
+      <span class="eyebrow">PRIVATE TABLE</span>
+      <strong>{{ clubId }} / {{ tableId }}</strong>
+    </div>
+    <div class="connection-strip" [attr.aria-label]="'API ' + health() + ', table ' + socketStatus()">
+      <span class="status-indicator" [class.online]="health() === 'online'" [class.offline]="health() === 'offline'"></span>
+      <span>API {{ health() }}</span>
+      <span class="connection-divider"></span>
+      <span class="status-indicator" [class.online]="socketStatus() === 'connected'" [class.pending]="socketStatus() === 'connecting'"></span>
+      <span>TABLE {{ socketStatus() }}</span>
+    </div>
+    <div class="balance-chip"><span>STACK</span><strong>{{ currentPlayer?.stack ?? 0 | number }}</strong></div>
+  </header>
+
+  <main class="workspace">
+    @if (controlsOpen()) {
+      <button class="drawer-scrim" type="button" aria-label="Close table setup" (click)="toggleControls()"></button>
+    }
+    <aside class="control-rail" [class.open]="controlsOpen()" [attr.inert]="controlsOpen() ? null : ''" [attr.role]="controlsOpen() ? 'dialog' : null" [attr.aria-modal]="controlsOpen() ? 'true' : null" aria-label="Table setup">
+      <div class="rail-heading">
+        <span class="eyebrow">TABLE CONTROL</span>
+        <h1>Set the game.</h1>
+        <button class="drawer-close" type="button" (click)="toggleControls()" aria-label="Close table setup">×</button>
+      </div>
+
+      <section class="control-section">
+        <div class="section-title"><span class="step-number">01</span><h2>Connection</h2></div>
+        <label class="field-label" for="apiBase">Backend URL</label>
+        <div class="input-with-action">
+          <input id="apiBase" name="apiBase" [(ngModel)]="apiBase" (change)="checkHealth()" autocomplete="url">
+          <button class="icon-button" type="button" (click)="checkHealth()" aria-label="Check backend connection" title="Check backend connection">↻</button>
+        </div>
+        <div class="split-fields">
+          <label><span class="field-label">Club ID</span><input name="clubId" [(ngModel)]="clubId"></label>
+          <label><span class="field-label">Table ID</span><input name="tableId" [(ngModel)]="tableId"></label>
+        </div>
+      </section>
+
+      @if (session.canManageTables()) {
+      <form class="control-section" (ngSubmit)="createTable()">
+        <div class="section-title"><span class="step-number">02</span><h2>Game setup</h2></div>
+        <div class="split-fields">
+          <label><span class="field-label">Small blind</span><input type="number" min="1" name="smallBlind" [(ngModel)]="smallBlind" required></label>
+          <label><span class="field-label">Big blind</span><input type="number" min="1" name="bigBlind" [(ngModel)]="bigBlind" required></label>
+          <label><span class="field-label">Buy-in min</span><input type="number" min="1" name="buyInMin" [(ngModel)]="buyInMin" required></label>
+          <label><span class="field-label">Buy-in max</span><input type="number" min="1" name="buyInMax" [(ngModel)]="buyInMax" required></label>
+        </div>
+        <button class="secondary-button full-width" type="submit" [disabled]="busy() !== ''">
+          {{ busy() === 'create' ? 'Creating table…' : 'Create table' }} <span aria-hidden="true">↗</span>
+        </button>
+      </form>
+      }
+
+      <form class="control-section" (ngSubmit)="seatPlayer()">
+        <div class="section-title"><span class="step-number">03</span><h2>Take a seat</h2></div>
+        <div class="split-fields">
+          <label><span class="field-label">Member ID</span><input name="userId" [ngModel]="userId" readonly></label>
+          <label><span class="field-label">Display name</span><input name="username" [ngModel]="username" readonly></label>
+          <label><span class="field-label">Seat number</span><input type="number" min="0" max="8" name="seatIndex" [(ngModel)]="seatIndex" required></label>
+          <label><span class="field-label">Buy-in request</span><input type="number" min="1" name="buyInAmount" [(ngModel)]="buyInAmount" required></label>
+        </div>
+        <div class="button-row">
+          <button class="secondary-button" type="submit" [disabled]="busy() !== ''">{{ busy() === 'seat' ? 'Seating…' : 'Seat player' }}</button>
+          <button class="icon-button connect-button" type="button" (click)="connectTable()" [disabled]="socketStatus() === 'connecting'" aria-label="Connect to table" title="Connect to table">⤴</button>
+        </div>
+      </form>
+
+      @if (session.canManageTables()) {
+      <button class="start-button" type="button" (click)="startHand()" [disabled]="busy() !== '' || players.length < 2">
+        <span class="start-icon" aria-hidden="true">▶</span>
+        <span>{{ busy() === 'start' ? 'Dealing…' : 'Deal the hand' }}</span>
+        <span class="start-arrow" aria-hidden="true">↗</span>
+      </button>
+      }
+      @if (notice()) {
+        <p class="notice" role="status">{{ notice() }}</p>
+      }
+      <p class="dev-note">Development client · Caller-supplied IDs are not authenticated.</p>
+    </aside>
+
+    <section class="table-panel" aria-label="Live poker table">
+      <div class="table-toolbar">
+        <div>
+          <span class="eyebrow">NO-LIMIT TEXAS HOLD’EM</span>
+          <h2>{{ tableId }} <span class="table-live" [class.live]="snapshot()?.is_hand_running">{{ snapshot()?.is_hand_running ? 'LIVE HAND' : 'WAITING' }}</span></h2>
+        </div>
+        <div class="table-toolbar-actions">
+          <div class="blind-summary"><span>BLINDS</span><strong>{{ smallBlind }} <i>/</i> {{ bigBlind }}</strong></div>
+          @if (snapshot()?.hand_id && !snapshot()?.is_hand_running) {
+            <button class="replay-open-button" type="button" (click)="openReplay()" aria-label="Review completed hand" title="Review completed hand">↺<span>REPLAY</span></button>
+          }
+        </div>
+      </div>
+
+      <div class="table-stage">
+        <div class="table-rim">
+          <div class="felt-surface">
+            <div class="felt-brand">COWBOYS <span>♠</span> POKER</div>
+            <div class="community-area">
+              <span class="street-label">{{ streetName(snapshot()?.street ?? null) }}</span>
+              <div class="community-cards">
+                @for (card of snapshot()?.community_cards ?? []; track $index) {
+                  <div class="playing-card" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><span>{{ cardSuit(card) }}</span></div>
+                }
+                @if ((snapshot()?.community_cards?.length ?? 0) === 0) {
+                  <span class="board-placeholder">COMMUNITY CARDS</span>
+                }
+              </div>
+              @if ((snapshot()?.pot ?? 0) > 0) {
+                <div class="pot-readout"><span class="pot-icon">●</span><span>POT</span><strong>{{ (snapshot()?.pot ?? 0) | number }}</strong></div>
+              }
+            </div>
+            @if (players.length === 0) {
+              <div class="empty-table-copy"><span class="empty-mark">♠</span><strong>Your table is ready.</strong><span>Create it, then seat players to begin.</span></div>
+            }
+            @for (player of players; track player.seat) {
+              <article class="player-seat" [class.hero-seat]="player.user_id === userId" [class.active-seat]="player.seat === snapshot()?.active_turn_seat" [style.left.%]="seatPosition(player.seat).x" [style.top.%]="seatPosition(player.seat).y">
+                <div class="seat-avatar">{{ player.username.slice(0, 1).toUpperCase() }}</div>
+                <div class="player-meta">
+                  <strong>{{ player.username }} @if (player.user_id === userId) { <small>YOU</small> }</strong>
+                  <span>{{ player.stack | number }} chips</span>
+                </div>
+                @if (player.seat === snapshot()?.active_turn_seat) { <span class="turn-marker">ACTING</span> }
+                <div class="hole-cards">
+                  @for (card of player.hole_cards; track $index) {
+                    @if (card === '??') {
+                      <div class="card-back" aria-label="Hidden card"><span>♠</span></div>
+                    } @else {
+                      <div class="playing-card mini-card" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><span>{{ cardSuit(card) }}</span></div>
+                    }
+                  }
+                </div>
+              </article>
+            }
+          </div>
+        </div>
+      </div>
+
+      <div class="table-footer">
+        <div class="hand-status"><span class="status-dot" [class.live-dot]="snapshot()?.is_hand_running"></span><span>{{ snapshot()?.is_hand_running ? streetName(snapshot()?.street ?? null) : 'Waiting for players' }}</span><span class="footer-divider"></span><span>{{ players.length }} seated</span></div>
+        <div class="hand-id">{{ snapshot()?.hand_id ? ('HAND ' + snapshot()?.hand_id?.slice(0, 8)) : 'NO ACTIVE HAND' }}</div>
+      </div>
+
+      <div class="action-bar">
+        <div class="action-context">
+          <span class="eyebrow">{{ isMyTurn ? 'YOUR ACTION' : 'TABLE ACTIONS' }}</span>
+          <strong>{{ isMyTurn ? 'Make your move' : (snapshot()?.is_hand_running ? 'Waiting for the table' : 'Start a hand to play') }}</strong>
+        </div>
+        <div class="action-controls">
+          <button class="fold-action" type="button" (click)="sendAction('FOLD')" [disabled]="!isMyTurn || socketStatus() !== 'connected'">Fold</button>
+          <button class="check-action" type="button" (click)="sendAction('CHECK')" [disabled]="!isMyTurn || socketStatus() !== 'connected'">Check</button>
+          <button class="call-action" type="button" (click)="sendAction('CALL')" [disabled]="!isMyTurn || socketStatus() !== 'connected'">Call</button>
+          <label class="raise-control"><span>Raise to</span><input type="number" min="1" [max]="currentPlayer?.stack ?? 999999" name="raiseTo" [(ngModel)]="raiseTo"><button type="button" (click)="sendAction('RAISE')" [disabled]="!isMyTurn || socketStatus() !== 'connected'">Raise</button></label>
+        </div>
+      </div>
+      @if (!isMyTurn && snapshot()?.is_hand_running) {
+        <p class="turn-hint">Actions are enabled for the current player only. The server validates every move.</p>
+      }
+    </section>
+  </main>
+  }
+  @if (rolesOpen()) {
+    <div class="role-sheet-backdrop" (click)="closeRoleGuide()">
+      <section class="role-sheet" role="dialog" aria-modal="true" aria-labelledby="role-sheet-title" (click)="$event.stopPropagation()">
+        <header class="role-sheet-header">
+          <div><span class="eyebrow">CLUB PERMISSIONS</span><h2 id="role-sheet-title">Member roles</h2></div>
+          <button type="button" (click)="closeRoleGuide()" aria-label="Close member roles">×</button>
+        </header>
+        <p class="role-sheet-note">Your current role is <strong>{{ session.role() }}</strong>. Role assignment is managed by the club.</p>
+        <div class="role-list">
+          @for (roleCard of roleCards; track roleCard.role) {
+            <article class="role-card" [class.current-role]="session.role() === roleCard.role">
+              <div class="role-card-heading"><span class="role-symbol">{{ roleCard.role === 'OWNER' ? '♛' : roleCard.role === 'MANAGER' ? '⚑' : roleCard.role === 'AGENT' ? '♢' : '♙' }}</span><h3>{{ roleCard.title }}</h3>@if (session.role() === roleCard.role) { <span class="current-role-tag">CURRENT</span> }</div>
+              <p>{{ roleCard.rights }}</p>
+            </article>
+          }
+        </div>
+      </section>
+    </div>
+  }
+</div>

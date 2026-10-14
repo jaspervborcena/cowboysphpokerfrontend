@@ -1,0 +1,37 @@
+<section class="replay-table" aria-label="Poker hand replay table">
+  @if (frame(); as current) {
+    <header class="replay-table-heading">
+      <span>{{ streetName(current.street) }}</span>
+      <span>FRAME {{ current.frame_index + 1 }}</span>
+    </header>
+    <div class="replay-felt">
+      <div class="replay-pot"><span>POT</span><strong>{{ current.pot | number }}</strong></div>
+      <div class="replay-board" aria-label="Community cards">
+        @for (card of current.community_cards; track $index) {
+          <span class="replay-card" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><i>{{ cardSuit(card) }}</i></span>
+        }
+        @if (current.community_cards.length === 0) { <span class="replay-board-empty">PRE-FLOP</span> }
+      </div>
+    </div>
+    <div class="replay-players">
+      @for (player of current.players; track player.seat) {
+        <article class="replay-player" [class.active-player]="player.seat === current.active_seat" [class.folded-player]="!player.in_hand">
+          <div class="replay-player-title"><span class="seat-number">{{ player.seat + 1 }}</span><strong>{{ player.username }}</strong></div>
+          <span class="replay-stack">{{ player.stack | number }} chips</span>
+          <div class="replay-hole-cards">
+            @for (card of player.hole_cards; track $index) {
+              @if (card === '??') {
+                <span class="replay-card-back" aria-label="Hidden card">?</span>
+              } @else {
+                <span class="replay-card mini" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><i>{{ cardSuit(card) }}</i></span>
+              }
+            }
+          </div>
+          @if (!player.in_hand) { <span class="folded-label">FOLDED</span> }
+        </article>
+      }
+    </div>
+  } @else {
+    <p class="replay-empty">This hand has no replay frames.</p>
+  }
+</section>

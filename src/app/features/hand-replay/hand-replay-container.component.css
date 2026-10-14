@@ -1,0 +1,19 @@
+:host { display: block; height: 100%; min-height: 0; }
+.hand-replay-page { height: calc(100dvh - 58px); min-height: 0; display: grid; grid-template-rows: auto auto auto minmax(210px, 1fr) minmax(90px, .7fr); gap: 7px; overflow: auto; padding: 9px 11px 12px; background: #071a2c; color: #e9f6fc; scrollbar-width: thin; scrollbar-color: #28536d transparent; }
+.replay-header { display: flex; align-items: center; gap: 9px; min-height: 37px; }
+.replay-back { width: 28px; height: 31px; border: 1px solid #315975; border-radius: 3px; background: #102d43; color: #d8f1ff; font-size: 23px; line-height: 1; }
+.replay-heading { min-width: 0; display: grid; gap: 2px; }
+.replay-heading span { color: #66c4e5; font-size: 6px; font-weight: 800; letter-spacing: 1px; }
+.replay-heading strong { overflow: hidden; color: #e7f6fd; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.replay-status { margin-left: auto; padding: 4px 6px; border: 1px solid #39768b; color: #8de0ea; font-size: 6px; font-weight: 800; letter-spacing: .6px; }
+.replay-summary { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #1b4059; background: #0b2438; }
+.replay-summary div { min-width: 0; display: grid; gap: 3px; padding: 7px; border-right: 1px solid #1b4059; }
+.replay-summary div:last-child { border: 0; }
+.replay-summary span { color: #77a6bf; font-size: 6px; font-weight: 800; letter-spacing: .7px; }
+.replay-summary strong { overflow: hidden; color: #e8f7ff; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.replay-message { align-self: center; color: #a9c3d2; font-size: 10px; text-align: center; }
+.replay-error { align-self: center; padding: 14px; border-left: 2px solid #df847d; background: #182c3c; color: #e4f1f7; }
+.replay-error strong { font: 500 16px Georgia, serif; }
+.replay-error p { color: #a9c1ce; font-size: 9px; line-height: 1.5; }
+.replay-error button { min-height: 30px; padding: 0 10px; border: 1px solid #47809c; background: #10344d; color: #d7f1fd; font-size: 9px; }
+@media (max-height: 650px) { .hand-replay-page { grid-template-rows: auto auto auto minmax(180px, 1fr) minmax(70px, .55fr); } }
