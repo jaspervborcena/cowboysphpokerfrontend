@@ -2,7 +2,7 @@
   @if (screen() === 'home') {
     <header class="member-topbar">
       <div class="member-avatar">{{ username.slice(0, 1).toUpperCase() }}</div>
-      <div class="member-identity"><strong>{{ username }}</strong><span>ID: {{ userId }}</span><small>{{ session.role() }}</small></div>
+      <div class="member-identity"><strong>{{ username }}</strong><span>ID: {{ userId }}</span><small>{{ session.membershipStatus() === 'verified' ? session.role() : 'PLAYER' }}</small></div>
       <div class="member-wallet"><span>♢</span><div><small>CLUB CHIPS</small><strong>{{ currentPlayer ? (currentPlayer.stack | number) : '—' }}</strong></div><button type="button" aria-label="Open club lobby" (click)="enterLobby()">+</button></div>
       <button class="member-menu" type="button" (click)="toggleControls()" aria-label="Open member controls">☰</button>
     </header>
@@ -45,7 +45,27 @@
         } @else if (session.canUseAgentDesk()) {
           <button type="button" (click)="notice.set('Agent services require the authenticated club ledger.')">Open agent desk <span>↗</span></button>
         } @else {
-          <span class="role-status">{{ session.role() }} · DEMO SESSION</span>
+          <span class="role-status">{{ session.membershipStatus() === 'loading' ? 'VERIFYING MEMBERSHIP' : session.membershipStatus() === 'unavailable' ? 'MEMBERSHIP UNAVAILABLE' : 'PLAYER ACCESS' }}</span>
+        }
+      </div>
+
+      <div class="auth-login-panel">
+        <div class="auth-header-row">
+          <span class="eyebrow">SIGN IN</span>
+          <button type="button" class="auth-signout" (click)="signOutCurrentUser()">Sign out</button>
+        </div>
+        <label>Email<input type="email" [value]="loginEmail()" (input)="loginEmail.set($any($event.target).value)" placeholder="you@example.com"></label>
+        <label>Password<input type="password" [value]="loginPassword()" (input)="loginPassword.set($any($event.target).value)" placeholder="Password"></label>
+        <button type="button" class="auth-button" [disabled]="signingIn()" (click)="signInWithEmailPassword()">{{ signingIn() ? 'Signing in…' : 'Email / Password' }}</button>
+
+        <button type="button" class="auth-button secondary" [disabled]="signingIn()" (click)="signInWithGoogle()">Continue with Google</button>
+
+        <label>Phone number<input type="tel" [value]="loginPhone()" (input)="loginPhone.set($any($event.target).value)" placeholder="+63 912 345 6789" autocomplete="tel"></label>
+        <label>Phone password<input type="password" [value]="loginPhonePassword()" (input)="loginPhonePassword.set($any($event.target).value)" placeholder="Password" autocomplete="current-password"></label>
+        <button type="button" class="auth-button" [disabled]="signingIn()" (click)="signInWithPhone()">{{ signingIn() ? 'Signing in…' : 'Phone / Password' }}</button>
+
+        @if (loginError()) {
+          <p class="login-error" role="alert">{{ loginError() }}</p>
         }
       </div>
     </main>
@@ -62,7 +82,7 @@
     <header class="lobby-topbar">
       <button class="lobby-back" type="button" (click)="goHome()" aria-label="Back to clubhouse">‹</button>
       <div class="lobby-club-mark">♛</div>
-      <div class="lobby-club-name"><strong>Card Games Manila</strong><span>ID: 843625 · {{ session.role() }}</span></div>
+      <div class="lobby-club-name"><strong>Card Games Manila</strong><span>ID: 843625 · {{ session.membershipStatus() === 'verified' ? session.role() : 'PLAYER' }}</span></div>
       <div class="lobby-wallet"><span>♢</span><strong>{{ currentPlayer ? (currentPlayer.stack | number) : '—' }}</strong></div>
       <button class="lobby-search" type="button" aria-label="Search tables">⌕</button>
     </header>
@@ -216,6 +236,13 @@
         <div class="split-fields">
           <label><span class="field-label">Small blind</span><input type="number" min="1" name="smallBlind" [(ngModel)]="smallBlind" required></label>
           <label><span class="field-label">Big blind</span><input type="number" min="1" name="bigBlind" [(ngModel)]="bigBlind" required></label>
+          <label><span class="field-label">Table size</span>
+            <select name="tableSize" [ngModel]="tableSize()" (ngModelChange)="tableSize.set($event)">
+              <option [ngValue]="6">6-handed</option>
+              <option [ngValue]="8">8-handed</option>
+              <option [ngValue]="9">9-handed</option>
+            </select>
+          </label>
           <label><span class="field-label">Buy-in min</span><input type="number" min="1" name="buyInMin" [(ngModel)]="buyInMin" required></label>
           <label><span class="field-label">Buy-in max</span><input type="number" min="1" name="buyInMax" [(ngModel)]="buyInMax" required></label>
         </div>
@@ -287,25 +314,37 @@
             @if (players.length === 0) {
               <div class="empty-table-copy"><span class="empty-mark">♠</span><strong>Your table is ready.</strong><span>Create it, then seat players to begin.</span></div>
             }
-            @for (player of players; track player.seat) {
-              <article class="player-seat" [class.hero-seat]="player.user_id === userId" [class.active-seat]="player.seat === snapshot()?.active_turn_seat" [style.left.%]="seatPosition(player.seat).x" [style.top.%]="seatPosition(player.seat).y">
-                <div class="seat-avatar">{{ player.username.slice(0, 1).toUpperCase() }}</div>
-                <div class="player-meta">
-                  <strong>{{ player.username }} @if (player.user_id === userId) { <small>YOU</small> }</strong>
-                  <span>{{ player.stack | number }} chips</span>
-                  @if (snapshot()?.is_union_table && player.club_id) { <small class="seat-club-tag">{{ player.club_id }}</small> }
-                </div>
-                @if (player.seat === snapshot()?.active_turn_seat) { <span class="turn-marker">ACTING</span> }
-                <div class="hole-cards">
-                  @for (card of player.hole_cards; track $index) {
-                    @if (card === '??') {
-                      <div class="card-back" aria-label="Hidden card"><span>♠</span></div>
-                    } @else {
-                      <div class="playing-card mini-card" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><span>{{ cardSuit(card) }}</span></div>
-                    }
+            @for (seat of tableSeatSlots; track seat.seat) {
+              @if (seat.player) {
+                <article class="player-seat" [class.hero-seat]="seat.player.user_id === userId" [class.active-seat]="seat.player.seat === snapshot()?.active_turn_seat" [class.is-offline]="seat.player.is_connected === false" [class.is-sat-out]="seat.player.is_sat_out" [style.left.%]="seatPosition(seat.player.seat).x" [style.top.%]="seatPosition(seat.player.seat).y">
+                  <div class="seat-avatar">{{ seat.player.username.slice(0, 1).toUpperCase() }}</div>
+                  <div class="player-meta">
+                    <strong>{{ seat.player.username }} @if (seat.player.user_id === userId) { <small>YOU</small> }</strong>
+                    <span>{{ seat.player.stack | number }} chips</span>
+                    @if (snapshot()?.is_union_table && seat.player.club_id) { <small class="seat-club-tag">{{ seat.player.club_id }}</small> }
+                  </div>
+                  @if (seat.player.seat === snapshot()?.active_turn_seat) { <span class="turn-marker">ACTING</span> }
+                  @if (seat.player.is_connected === false && seat.player.in_hand) {
+                    <div class="reconnect-badge"><span class="spinner"></span> Reconnecting... {{ seat.player.disconnect_seconds_left ?? disconnectTimer() }}s</div>
                   }
-                </div>
-              </article>
+                  @if (seat.player.is_sat_out) {
+                    <div class="sat-out-overlay"><span>SITTING OUT</span></div>
+                  }
+                  <div class="hole-cards">
+                    @for (card of seat.player.hole_cards; track $index) {
+                      @if (card === '??') {
+                        <div class="card-back" aria-label="Hidden card"><span>♠</span></div>
+                      } @else {
+                        <div class="playing-card mini-card" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><span>{{ cardSuit(card) }}</span></div>
+                      }
+                    }
+                  </div>
+                </article>
+              } @else {
+                <button class="empty-seat-button" type="button" [style.left.%]="seatPosition(seat.seat).x" [style.top.%]="seatPosition(seat.seat).y" (click)="chooseEmptySeat(seat.seat)" [attr.aria-label]="'Empty seat ' + (seat.seat + 1)">
+                  <span>+</span>
+                </button>
+              }
             }
           </div>
         </div>
@@ -317,6 +356,13 @@
       </div>
 
       <div class="action-bar">
+        @if (isCurrentPlayerSatOut) {
+          <div class="sit-in-bar">
+            <p>You are currently sitting out.</p>
+            <button type="button" class="btn-im-back" (click)="onImBack()">I'm Back</button>
+          </div>
+        }
+
         <div class="action-context">
           <span class="eyebrow">{{ isMyTurn ? 'YOUR ACTION' : 'TABLE ACTIONS' }}</span>
           <strong>{{ isMyTurn ? 'Make your move' : (snapshot()?.is_hand_running ? 'Waiting for the table' : 'Start a hand to play') }}</strong>

@@ -6,29 +6,28 @@ Move the Angular demo from a polished frontend concept to a real, backend-connec
 
 ## Priority work
 
-- [ ] Diagnose and fix the current local `npm start` startup failure in this workspace.
-- [ ] Confirm the backend contract for health, club data, seat creation, hand actions, and websocket table updates.
-- [ ] Replace sample lobby and table data with real API-backed data.
-- [ ] Add real authentication and member verification before setting session role state.
-- [ ] Enforce `PLAYER`, `AGENT`, `MANAGER`, and `OWNER` permission checks on the server for all privileged actions.
-- [ ] Secure websocket and table routes so identity and role are validated on every request.
-- [ ] Finalize the lower navigation behavior so players only see the minimal role menu, while agents and higher roles keep the full menu.
-- [ ] Integrate Firebase web sign-in and pass the refreshed ID token into the authenticated session store.
-- [ ] Replace hardcoded member/role state with `GET /clubs/{club_id}/members/me` data and server-authoritative role checks.
-- [ ] Rewrite the table websocket flow to match the backend contract: authenticate on open, remove user IDs from the URL, and handle `authenticated` acknowledgements.
-- [ ] Add `buy_in_id` idempotency handling to seat requests and retry-safe balance flows.
-- [ ] Connect the lobby to real club and table APIs instead of static sample data.
-- [ ] Wire completed-hand replay flow to `GET /clubs/{club_id}/hands/{hand_id}/replay` with token-authenticated requests.
-- [ ] Validate owner/manager controls and agent desk actions against verified role checks.
-- [ ] Add regression tests around role gating, auth flow, table lifecycle behavior, and replay access.
+- [ ] Implement backend `POST /auth/phone/sign-in`: validate phone/password, rate-limit failures, and return a Firebase custom token.
+- [ ] Implement OTP-based phone password reset; OTP is for account recovery, not normal sign-in.
+- [ ] Configure Firebase web settings at host startup and verify email/password, Google, and phone/password sign-in against the real Firebase project.
+- [ ] Confirm and integration-test backend contracts for health, membership, tables, seating, hand actions, and websocket snapshots.
+- [ ] Replace sample lobby rows, hardcoded club/table IDs, and empty/error fallbacks with configured live data and explicit empty/error states.
+- [ ] Enforce `PLAYER`, `AGENT`, `MANAGER`, `OWNER`, and union-admin permissions on every privileged REST and websocket action.
+- [ ] Verify websocket authentication, token expiry, reconnect behavior, and server-authoritative identity/role checks.
+- [ ] Move disconnect grace periods, auto-check/fold, sit-out, and reconnect state to the backend; remove claims based solely on optimistic browser state.
+- [ ] Complete seat lifecycle and ledger flows: buy-in idempotency, leave seat, cash-out, and club/union cashier reconciliation.
+- [ ] Complete union formation, invitations, and member provisioning workflows.
+- [ ] Define rake policy and allocation; use durable single-writer table state for multi-instance hosting.
+- [ ] Expand integration tests for auth lifecycle, API errors/empty states, role authorization, and websocket/table lifecycle behavior.
 
 ## Definition of done
 
 The next phase is complete when:
 
-- the app starts cleanly in development,
-- the frontend uses real backend data instead of placeholders,
+- the app starts with configured Firebase and backend endpoints,
+- the frontend uses real backend data and has explicit loading, empty, and error states,
+- email/password, Google, and phone/password sign-in complete against the real auth setup,
+- phone password reset uses OTP without requiring OTP during normal sign-in,
 - `PLAYER` users only see player-only actions,
 - `AGENT`, `MANAGER`, and `OWNER` users see the appropriate elevated menu,
-- server-side role enforcement blocks unauthorized access,
-- all privileged actions are covered by regression tests.
+- server-side role and table-state enforcement blocks unauthorized or stale actions,
+- cash, seat, and hand lifecycle flows are covered by integration tests.

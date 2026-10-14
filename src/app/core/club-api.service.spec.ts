@@ -17,6 +17,18 @@ describe('ClubApiService union requests', () => {
 
   afterEach(() => http.verify());
 
+  it('requests a Firebase custom token for phone and password sign-in', () => {
+    service.signInWithPhonePassword('http://localhost:8000/', '+639123456789', 'secret-pass').subscribe();
+
+    const request = http.expectOne('http://localhost:8000/auth/phone/sign-in');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({
+      phone_number: '+639123456789',
+      password: 'secret-pass'
+    });
+    request.flush({ firebase_custom_token: 'firebase-custom-token' });
+  });
+
   it('loads union tables using the member club path and Firebase token', () => {
     service.getUnionTables('http://localhost:8000/', 'club-a', 'union-1', 'firebase-token').subscribe();
 

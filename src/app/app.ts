@@ -2,7 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { DecimalPipe } from '@angular/common';
 import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Observable } from 'rxjs';
+import { firstValueFrom, Observable } from 'rxjs';
 import { ClubApiService, ClubMembershipResponse, ClubTableSummary, ClubUnionSummary } from './core/club-api.service';
 import { FirebaseAuthService } from './core/firebase-auth.service';
 import { UserSessionStore } from './core/user-session.store';
@@ -16,6 +16,9 @@ type PokerPlayer = {
   status: string;
   hole_cards: string[];
   in_hand: boolean;
+  is_connected?: boolean;
+  is_sat_out?: boolean;
+  disconnect_seconds_left?: number;
   club_id?: string | null;
 };
 
@@ -89,6 +92,7 @@ export class App implements OnInit, OnDestroy {
   bigBlind = 100;
   buyInMin = 100;
   buyInMax = 1000;
+  tableSize = signal<number>(9);
   seatIndex = 0;
   buyInAmount = 500;
   unionTableName = 'Union Main';
@@ -97,34 +101,58 @@ export class App implements OnInit, OnDestroy {
   health = signal<'checking' | 'online' | 'offline'>('checking');
   socketStatus = signal<'disconnected' | 'connecting' | 'connected'>('disconnected');
   snapshot = signal<TableSnapshot | null>(null);
+  disconnectTimer = signal<number>(15);
   busy = signal('');
   notice = signal('');
+  loginEmail = signal('');
+  loginPassword = signal('');
+  loginPhone = signal('');
+  loginPhonePassword = signal('');
+  loginError = signal('');
+  signingIn = signal(false);
   controlsOpen = signal(false);
   preAction = signal<'check-fold' | 'fold' | 'call-any' | null>(null);
   private socket: WebSocket | null = null;
   private pendingBuyInId: string | null = null;
+  private unsubscribeAuthState: (() => void) | null = null;
 
   constructor(private readonly http: HttpClient, session: UserSessionStore) {
     this.session = session;
 
     effect(() => {
-      const queuedAction = this.preAction();
-      if (queuedAction !== 'check-fold' || !this.isMyTurn) return;
-
-      const currentBet = this.currentBet;
-      this.sendAction(currentBet === 0 ? 'CHECK' : 'FOLD');
-      this.preAction.set(null);
+      this.resolveQueuedPreAction();
     });
   }
 
   ngOnInit(): void {
     this.checkHealth();
-    void this.refreshFirebaseSession();
-    this.loadMemberSession();
-    this.loadLobbyData();
+    if (!this.firebaseAuth.isConfigured()) return;
+
+    this.unsubscribeAuthState = this.firebaseAuth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        this.session.clearSession();
+        return;
+      }
+
+      const idToken = await this.firebaseAuth.getCurrentIdToken();
+      if (!idToken) {
+        this.session.clearSession();
+        this.session.membershipStatus.set('unavailable');
+        return;
+      }
+
+      this.session.setAuthenticatedIdentity(
+        user.uid,
+        user.displayName || user.email || user.phoneNumber || 'Authenticated player',
+        idToken
+      );
+      this.loadMemberSession();
+      this.loadLobbyData();
+    });
   }
 
   ngOnDestroy(): void {
+    this.unsubscribeAuthState?.();
     this.closeSocket();
   }
 
@@ -132,8 +160,13 @@ export class App implements OnInit, OnDestroy {
     return this.snapshot()?.players ?? [];
   }
 
+  get tableSeatSlots(): Array<{ seat: number; player?: PokerPlayer }> {
+    const playerLookup = new Map((this.snapshot()?.players ?? []).map((player) => [player.seat, player]));
+    return Array.from({ length: this.tableSize() }, (_, seat) => ({ seat, player: playerLookup.get(seat) }));
+  }
+
   get userId(): string {
-    return this.session.memberId();
+    return this.session.memberId() || '—';
   }
 
   get username(): string {
@@ -142,6 +175,10 @@ export class App implements OnInit, OnDestroy {
 
   get currentPlayer(): PokerPlayer | undefined {
     return this.players.find((player) => player.user_id === this.userId);
+  }
+
+  get isCurrentPlayerSatOut(): boolean {
+    return this.currentPlayer?.is_sat_out ?? false;
   }
 
   get isMyTurn(): boolean {
@@ -161,10 +198,105 @@ export class App implements OnInit, OnDestroy {
     if (this.isMyTurn) return;
     const nextValue = this.preAction() === action ? null : action;
     this.preAction.set(nextValue);
+    this.resolveQueuedPreAction();
   }
 
   toggleControls(): void {
     this.controlsOpen.update((open) => !open);
+  }
+
+  private async finalizeSignedInUser(label: string): Promise<void> {
+    const idToken = await this.firebaseAuth.getCurrentIdToken();
+    const user = await this.firebaseAuth.getCurrentUser();
+    const memberId = user?.uid || label;
+    const displayName = user?.displayName || user?.email || user?.phoneNumber || label.split('@')[0] || 'Authenticated player';
+
+    if (idToken) this.session.setAuthenticatedIdentity(memberId, displayName, idToken);
+    this.notice.set(`Signed in as ${displayName}. Fetching club membership...`);
+    this.loginError.set('');
+    this.signingIn.set(false);
+
+    if (idToken) {
+      this.loadMemberSession();
+      this.loadLobbyData();
+    } else {
+      this.session.membershipStatus.set('unavailable');
+    }
+  }
+
+  async signOutCurrentUser(): Promise<void> {
+    await this.firebaseAuth.signOut();
+    this.session.clearSession();
+    this.loginEmail.set('');
+    this.loginPassword.set('');
+    this.loginPhone.set('');
+    this.loginPhonePassword.set('');
+    this.loginError.set('');
+    this.notice.set('Signed out.');
+  }
+
+  async signInWithEmailPassword(): Promise<void> {
+    if (!this.loginEmail() || !this.loginPassword()) {
+      this.loginError.set('Enter an email and password to continue.');
+      return;
+    }
+
+    this.signingIn.set(true);
+    this.loginError.set('');
+    const ok = await this.firebaseAuth.signInWithEmailAndPassword(this.loginEmail(), this.loginPassword());
+    if (!ok) {
+      this.loginError.set('Email sign-in failed. Check your Firebase auth setup.');
+      this.signingIn.set(false);
+      return;
+    }
+
+    await this.finalizeSignedInUser(this.loginEmail());
+  }
+
+  async signInWithGoogle(): Promise<void> {
+    this.signingIn.set(true);
+    this.loginError.set('');
+    const ok = await this.firebaseAuth.signInWithGoogle();
+    if (!ok) {
+      this.loginError.set('Google sign-in failed. Make sure Google Auth is enabled in Firebase.');
+      this.signingIn.set(false);
+      return;
+    }
+
+    await this.finalizeSignedInUser('google-user');
+  }
+
+  async signInWithPhone(): Promise<void> {
+    const phoneNumber = this.loginPhone().trim();
+    const password = this.loginPhonePassword();
+    if (!phoneNumber || !password) {
+      this.loginError.set('Enter your phone number and password to continue.');
+      return;
+    }
+
+    this.signingIn.set(true);
+    this.loginError.set('');
+    try {
+      const response = await firstValueFrom(this.clubApi.signInWithPhonePassword(
+        this.baseUrl(),
+        phoneNumber,
+        password
+      ));
+      const signedIn = await this.firebaseAuth.signInWithCustomToken(response.firebase_custom_token);
+      if (!signedIn) throw new Error('Firebase rejected the custom token.');
+
+      await this.finalizeSignedInUser(phoneNumber);
+      this.loginPhonePassword.set('');
+    } catch {
+      this.loginError.set('Phone sign-in failed. Check your phone number and password.');
+      this.signingIn.set(false);
+    }
+  }
+
+  chooseEmptySeat(seat: number): void {
+    this.seatIndex = seat;
+    this.controlsOpen.set(true);
+    this.notice.set(`Seat ${seat + 1} is open. Set your buy-in to at least ${this.buyInMin} chips and click Seat player to join.`);
   }
 
   goHome(): void {
@@ -244,30 +376,20 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  private async refreshFirebaseSession(): Promise<void> {
-    const idToken = await this.firebaseAuth.getCurrentIdToken();
-    if (!idToken) return;
-
-    this.session.setVerifiedMember(
-      this.session.memberId(),
-      this.session.displayName(),
-      this.session.role(),
-      idToken
-    );
-    this.loadMemberSession();
-    this.loadLobbyData();
-  }
-
   private loadMemberSession(): void {
     const idToken = this.session.firebaseIdToken();
     if (!idToken) return;
 
     this.clubApi.getMembership(this.baseUrl(), this.clubId, idToken).subscribe({
       next: (membership: ClubMembershipResponse) => {
+        if (this.session.firebaseIdToken() !== idToken) return;
         this.session.setVerifiedMember(membership.user_id, membership.username, membership.role, idToken);
+        this.notice.set(`Authenticated as ${membership.username} (${membership.role}).`);
       },
       error: () => {
-        this.notice.set('Unable to load the authenticated member profile; using demo session state.');
+        if (this.session.firebaseIdToken() !== idToken) return;
+        this.session.membershipStatus.set('unavailable');
+        this.notice.set('Unable to verify your club membership. Table and management access are unavailable.');
       }
     });
   }
@@ -347,7 +469,8 @@ export class App implements OnInit, OnDestroy {
       small_blind: Number(this.smallBlind),
       big_blind: Number(this.bigBlind),
       buy_in_min: Number(this.buyInMin),
-      buy_in_max: Number(this.buyInMax)
+      buy_in_max: Number(this.buyInMax),
+      table_size: Number(this.tableSize())
     }, {
       headers: { Authorization: `Bearer ${idToken}` }
     }));
@@ -365,7 +488,8 @@ export class App implements OnInit, OnDestroy {
       small_blind: Number(this.smallBlind),
       big_blind: Number(this.bigBlind),
       buy_in_min: Number(this.buyInMin),
-      buy_in_max: Number(this.buyInMax)
+      buy_in_max: Number(this.buyInMax),
+      table_size: Number(this.tableSize())
     }).subscribe({
       next: () => {
         this.notice.set('Union table created.');
@@ -400,12 +524,25 @@ export class App implements OnInit, OnDestroy {
   }
 
   seatPlayer(): void {
+    const minimumBuyIn = Number(this.buyInMin) || 0;
+    const requestedBuyIn = Number(this.buyInAmount) || 0;
+    if (requestedBuyIn < minimumBuyIn) {
+      this.notice.set(`This table requires a minimum buy-in of ${minimumBuyIn} chips.`);
+      return;
+    }
+
+    const availableStack = this.currentPlayer?.stack ?? 0;
+    if (availableStack < requestedBuyIn) {
+      this.notice.set(`You need at least ${requestedBuyIn} chips in your stack to sit here.`);
+      return;
+    }
+
     const idToken = this.requireFirebaseToken('joining a table');
     if (!idToken) return;
     this.pendingBuyInId ??= crypto.randomUUID();
     const request = {
       seat_index: Number(this.seatIndex),
-      buy_in_amount: Number(this.buyInAmount),
+      buy_in_amount: requestedBuyIn,
       buy_in_id: this.pendingBuyInId
     };
     if (this.tableUnionId()) {
@@ -448,6 +585,7 @@ export class App implements OnInit, OnDestroy {
     this.closeSocket();
     this.socketStatus.set('connecting');
     this.notice.set('');
+    this.updatePlayerState(this.userId, { is_connected: true, is_sat_out: false, disconnect_seconds_left: 15 });
     const base = this.baseUrl().replace(/^http/, 'ws');
     const path = this.tableUnionId()
       ? `/ws/union/${encodeURIComponent(this.tableUnionId()!)}/${encodeURIComponent(this.tableId)}`
@@ -461,6 +599,7 @@ export class App implements OnInit, OnDestroy {
       };
       if (this.tableUnionId()) authentication.club_id = this.clubId;
       socket.send(JSON.stringify(authentication));
+      this.updatePlayerState(this.userId, { is_connected: true, is_sat_out: false, disconnect_seconds_left: 15 });
     };
     socket.onmessage = (event: MessageEvent<string>) => {
       try {
@@ -475,6 +614,7 @@ export class App implements OnInit, OnDestroy {
           return;
         }
         this.snapshot.set(message);
+        this.resolveQueuedPreAction();
       } catch {
         this.notice.set('Received an unreadable update from the table.');
       }
@@ -482,11 +622,40 @@ export class App implements OnInit, OnDestroy {
     socket.onerror = () => {
       this.notice.set('The table connection encountered an error.');
       this.socketStatus.set('disconnected');
+      this.handlePlayerDisconnected();
     };
     socket.onclose = () => {
       this.socketStatus.set('disconnected');
+      this.handlePlayerDisconnected();
       this.socket = null;
     };
+  }
+
+  handlePlayerDisconnected(): void {
+    this.updatePlayerState(this.userId, { is_connected: false, disconnect_seconds_left: this.disconnectTimer() });
+    this.startDisconnectProtection();
+  }
+
+  autoResolveDisconnect(): void {
+    const snapshot = this.snapshot();
+    if (!snapshot) return;
+
+    const current = this.currentPlayer;
+    if (!current) return;
+
+    const resolvedAction = this.currentBet === 0 ? 'CHECK' : 'FOLD';
+    this.sendAction(resolvedAction);
+    this.updatePlayerState(this.userId, { is_connected: false, is_sat_out: true, disconnect_seconds_left: 0 });
+    this.notice.set('You were disconnected and automatically checked/folded. Press "I\'m Back" to sit back in.');
+  }
+
+  onImBack(): void {
+    this.updatePlayerState(this.userId, { is_connected: true, is_sat_out: false, disconnect_seconds_left: 15 });
+    this.disconnectTimer.set(15);
+    this.notice.set('You are back in. You will be seated for the next hand.');
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ action: 'SIT_IN' }));
+    }
   }
 
   sendAction(action: 'FOLD' | 'CHECK' | 'CALL' | 'RAISE'): void {
@@ -502,12 +671,20 @@ export class App implements OnInit, OnDestroy {
   }
 
   seatPosition(seat: number): { x: number; y: number } {
-    const positions = [
+    const totalSeats = Math.max(6, Number(this.tableSize()) || 9);
+    const basePositions = [
       { x: 50, y: 91 }, { x: 76, y: 78 }, { x: 87, y: 50 },
       { x: 76, y: 22 }, { x: 50, y: 9 }, { x: 24, y: 22 },
-      { x: 13, y: 50 }, { x: 24, y: 78 }, { x: 50, y: 50 }
+      { x: 13, y: 50 }, { x: 24, y: 78 }
     ];
-    return positions[((seat % positions.length) + positions.length) % positions.length];
+
+    if (totalSeats === 9) {
+      basePositions.push({ x: 50, y: 50 });
+    }
+
+    const mySeat = this.currentPlayer?.seat ?? 0;
+    const relativeSeat = ((seat - mySeat) % totalSeats + totalSeats) % totalSeats;
+    return basePositions[relativeSeat] ?? basePositions[0];
   }
 
   streetName(street: number | null): string {
@@ -555,6 +732,15 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  private resolveQueuedPreAction(): void {
+    const queuedAction = this.preAction();
+    if (queuedAction !== 'check-fold' || !this.isMyTurn) return;
+
+    const currentBet = this.currentBet;
+    this.sendAction(currentBet === 0 ? 'CHECK' : 'FOLD');
+    this.preAction.set(null);
+  }
+
   private requireFirebaseToken(action: string): string | null {
     const idToken = this.session.firebaseIdToken();
     if (!idToken) {
@@ -562,6 +748,35 @@ export class App implements OnInit, OnDestroy {
       return null;
     }
     return idToken;
+  }
+
+  private updatePlayerState(userId: string, updates: Partial<PokerPlayer>): void {
+    const snapshot = this.snapshot();
+    if (!snapshot) return;
+
+    this.snapshot.set({
+      ...snapshot,
+      players: snapshot.players.map((player) =>
+        player.user_id === userId ? { ...player, ...updates } : player
+      )
+    });
+  }
+
+  private startDisconnectProtection(): void {
+    const current = this.currentPlayer;
+    if (!current) return;
+
+    this.disconnectTimer.set(15);
+    const timer = window.setInterval(() => {
+      const remaining = this.disconnectTimer() - 1;
+      this.disconnectTimer.set(Math.max(0, remaining));
+      this.updatePlayerState(this.userId, { disconnect_seconds_left: this.disconnectTimer() });
+
+      if (remaining <= 0) {
+        window.clearInterval(timer);
+        this.autoResolveDisconnect();
+      }
+    }, 1000);
   }
 
   baseUrl(): string {

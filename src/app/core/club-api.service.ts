@@ -42,9 +42,25 @@ export interface CreateUnionTableResponse {
   status: string;
 }
 
+export interface PhonePasswordSignInResponse {
+  firebase_custom_token: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ClubApiService {
   private readonly http = inject(HttpClient);
+
+  signInWithPhonePassword(
+    apiBase: string,
+    phoneNumber: string,
+    password: string
+  ): Observable<PhonePasswordSignInResponse> {
+    const url = `${apiBase.replace(/\/$/, '')}/auth/phone/sign-in`;
+    return this.http.post<PhonePasswordSignInResponse>(url, {
+      phone_number: phoneNumber,
+      password
+    });
+  }
 
   getMembership(apiBase: string, clubId: string, idToken: string): Observable<ClubMembershipResponse> {
     const url = `${apiBase.replace(/\/$/, '')}/clubs/${encodeURIComponent(clubId)}/members/me`;
@@ -98,6 +114,7 @@ export class ClubApiService {
       big_blind: number;
       buy_in_min: number;
       buy_in_max: number;
+      table_size?: number;
     }
   ): Observable<CreateUnionTableResponse> {
     const url = `${apiBase.replace(/\/$/, '')}/unions/${encodeURIComponent(unionId)}/tables/${encodeURIComponent(tableId)}`;

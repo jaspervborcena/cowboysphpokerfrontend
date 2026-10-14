@@ -4,22 +4,20 @@ Angular 20 member client for the Cowboys PH poker experience. This workspace foc
 
 ## Current status
 
-The frontend is in a demo-ready state for UX and role presentation:
+The Angular client implements clubhouse, lobby, live-table, union-table, and hand-replay UI flows. It includes:
 
-- The session store exposes member identity and role state using Angular signals.
-- Supported roles are `OWNER`, `MANAGER`, `AGENT`, and `PLAYER`.
-- Union admin rights are separately scoped as `UNION_ADMIN`; they do not replace or elevate a club role.
-- The app includes a role sheet that shows each permission set and highlights the current demo role.
-- The member flow starts at the clubhouse/home screen, goes to the club lobby, and can open a live table view.
-- The bottom navigation is role-aware: regular players only see the `ROLES` action, while `AGENT` and higher roles see the full member menu.
-- Table actions, seat creation, hand start, and websocket updates are wired in the client.
-- Completed hands can be opened in a per-player replay with frame stepping, playback, speed control, and an action log.
-- The lobby separates Club Tables from Union Tables, labels shared-table players with their home club, and exposes table management only to union admins.
-- The current demo account is `joppy2024` with member ID `player-a` and the active role `PLAYER`.
+- Role-aware UI for `OWNER`, `MANAGER`, `AGENT`, `PLAYER`, and union-scoped `UNION_ADMIN` permissions.
+- Firebase email/password and Google sign-in, followed by backend club-membership lookup.
+- Phone/password sign-in through a backend endpoint that returns a Firebase custom token.
+- A least-privilege `PLAYER` state while membership is loading; elevated roles come from the backend membership response.
+- Table creation/seating/hand-start requests, authenticated websocket setup, and replay API integration.
+- A client-side disconnect/sit-out presentation. It is not authoritative disconnect protection; the server must enforce timers and actions.
+
+This is not yet a production-ready end-to-end client. The API and websocket backend must implement and enforce the contracts below. Sample lobby rows are still used when live table data is unavailable.
 
 ## Role model
 
-`src/app/core/user-session.store.ts` is the source of truth for the demo identity and role permissions.
+`src/app/core/user-session.store.ts` holds the current client identity and role state. A Firebase identity starts with baseline `PLAYER` access while the app loads `GET /clubs/{club_id}/members/me`; the verified backend response then sets the club role.
 
 - `OWNER`: club-wide management, table control, and access to admin-level actions
 - `MANAGER`: table operational controls and access oversight
@@ -34,7 +32,7 @@ The current navigation rule is intentional:
 
 These checks are currently UI-level only. They are not security controls. The backend must re-validate identity and role on every REST and WebSocket endpoint before allowing privileged actions.
 
-## Backend assumptions and known gaps
+## Backend contract and known gaps
 
 This frontend assumes a backend exists for the following endpoints and behavior:
 
@@ -47,10 +45,15 @@ This frontend assumes a backend exists for the following endpoints and behavior:
 - `GET /clubs/{club_id}/hands/{hand_id}/replay` for authenticated, player-filtered hand replays
 - `GET /clubs/{club_id}/unions` and `GET /clubs/{club_id}/unions/{union_id}/tables` for joined-union lobby data
 - `POST /unions/{union_id}/tables/{table_id}` and union seat/hand/socket routes for shared games
+- `POST /auth/phone/sign-in` accepts `{ "phone_number": "+639123456789", "password": "..." }` and returns `{ "firebase_custom_token": "..." }`. The backend must verify the credential, normalize phone numbers, rate-limit failures, and issue the token with Firebase Admin SDK. The frontend then signs into Firebase with that custom token; no SMS code is used during sign-in.
 
-The replay feature is split into a token-authenticated API service, signal store, smart container, and dumb replay controls/table/action-log components under `src/app/features/hand-replay/`. It requires the active Firebase ID token to be provided to `UserSessionStore.setVerifiedMember`; the demo identity alone is intentionally insufficient to load private hand history.
+The phone sign-in route is a frontend contract, not proof that the backend route exists. Phone account provisioning and OTP-based password reset are not implemented in this frontend yet. Do not authenticate based only on a client-supplied phone number.
 
-When Firebase returns a real ID token, the app loads club and union table lists from the backend. Demo lobby rows remain a fallback. Union seats are debited from the selected home club; the shared socket URL omits the player ID and authenticates with the token plus `club_id` in its first message.
+The replay feature is split into a token-authenticated API service, signal store, container, and presentation components under `src/app/features/hand-replay/`. Private hand history requests require the active Firebase ID token from the authenticated session.
+
+The host must set `window.__COWBOYS_FIREBASE_CONFIG__` before the app starts. Protected club and union requests use the Firebase ID token. The lobby currently retains sample rows when live table requests fail or return an empty list; remove that fallback before production. Union seats are debited from the selected home club; the shared socket URL omits the player ID and authenticates with the token plus `club_id` in its first message.
+
+The browser's disconnect timer and optimistic seat flags are presentation only. The backend must own heartbeat deadlines, auto-check/fold behavior, sit-out state, reconnect rules, and table snapshots.
 
 ## Local development
 
@@ -68,18 +71,18 @@ npm run build
 npx ng test --watch=false
 ```
 
-The Angular production build and unit tests validate replay and union UI behavior. A host must configure `window.__COWBOYS_FIREBASE_CONFIG__` and establish a Firebase Auth session before protected club/union API calls can succeed. Union and club membership documents must be provisioned in Firestore before they appear in the lobby.
+The Angular production build and unit tests validate frontend behavior and API request shapes; they do not prove that backend routes or security enforcement are live. Configure `window.__COWBOYS_FIREBASE_CONFIG__`, implement the API contracts, and provision club/union membership records before integration testing.
 
 ## Next phase focus
 
 The next phase should focus on integration and hardening rather than more visual polish:
 
-1. wire the host Firebase Auth sign-in/configuration into the current Firebase token service
-2. replace demo fallback lobby rows with live data only
-3. build union formation, club invitations, and member provisioning workflows
-4. define and implement rake rates and traffic-based rake allocation
-5. move live table state to a durable single-writer runtime for multi-instance hosting
-6. add sit-out, leave-seat, cash-out, and full club/union cashier flows
+1. Implement and integration-test phone/password sign-in and OTP-based password reset on the backend.
+2. Replace sample lobby/table data and hardcoded development IDs with configured, live backend data.
+3. Enforce club/union roles and all privileged REST/websocket actions on the server.
+4. Move disconnect protection, auto-sit-out, reconnect, and turn resolution to authoritative server logic.
+5. Add seat-leave, cash-out, buy-in ledger, and club/union cashier flows.
+6. Add union formation, invitations, member provisioning, rake allocation, and durable multi-instance table state.
 
 ## Files to watch
 

@@ -45,6 +45,25 @@ describe('App', () => {
     expect(session.canUseAgentDesk()).toBeTrue();
   });
 
+  it('should grant role permissions only after backend membership verification', () => {
+    const session = TestBed.inject(UserSessionStore);
+    expect(session.membershipStatus()).toBe('signed-out');
+
+    session.setAuthenticatedIdentity('firebase-user', 'Firebase User', 'id-token');
+    expect(session.membershipStatus()).toBe('loading');
+    expect(session.role()).toBe('PLAYER');
+    expect(session.canManageTables()).toBeFalse();
+
+    session.setVerifiedMember('backend-member', 'Club Manager', 'MANAGER', 'id-token');
+    expect(session.membershipStatus()).toBe('verified');
+    expect(session.canManageTables()).toBeTrue();
+
+    session.clearSession();
+    expect(session.membershipStatus()).toBe('signed-out');
+    expect(session.firebaseIdToken()).toBeNull();
+    expect(session.canManageTables()).toBeFalse();
+  });
+
   it('should scope union administration to an assigned union and clear it on member change', () => {
     const session = TestBed.inject(UserSessionStore);
     session.setVerifiedMember('club-owner', 'Owner', 'OWNER');
@@ -86,6 +105,122 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelectorAll('.role-card').length).toBe(5);
     expect(fixture.nativeElement.querySelector('.current-role-tag')?.textContent).toContain('CURRENT');
     expect(fixture.nativeElement.querySelector('select')).toBeNull();
+  });
+
+  it('should render empty seat placeholders according to the configured table size', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.screen.set('table');
+    app.tableSize.set(6);
+    app.snapshot.set({
+      table_id: 'table-1',
+      table_name: 'Test Table',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: null,
+      is_hand_running: false,
+      street: null,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: null,
+      players: [{
+        seat: 0,
+        user_id: 'player-1',
+        username: 'Player',
+        stack: 500,
+        status: 'active',
+        hole_cards: [],
+        in_hand: true
+      }]
+    } as any);
+    fixture.detectChanges();
+
+    const emptySeats = Array.from(fixture.nativeElement.querySelectorAll('.empty-seat-button')) as HTMLButtonElement[];
+    expect(emptySeats.length).toBe(5);
+    expect(emptySeats.every((seat) => seat.textContent?.includes('+'))).toBeTrue();
+  });
+
+  it('should keep the current player at the bottom while preserving seatmates around the table', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    session.setVerifiedMember('player-1', 'Player', 'PLAYER');
+    app.tableSize.set(8);
+    app.snapshot.set({
+      table_id: 'table-1',
+      table_name: 'Test Table',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: null,
+      is_hand_running: false,
+      street: null,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: null,
+      players: [
+        { seat: 4, user_id: 'player-1', username: 'Player', stack: 500, status: 'active', hole_cards: [], in_hand: true },
+        { seat: 5, user_id: 'mike', username: 'Mike', stack: 500, status: 'active', hole_cards: [], in_hand: true },
+        { seat: 3, user_id: 'jose', username: 'Jose', stack: 500, status: 'active', hole_cards: [], in_hand: true }
+      ]
+    } as any);
+
+    const mySeat = app.seatPosition(4);
+    const rightSeat = app.seatPosition(5);
+    const leftSeat = app.seatPosition(3);
+
+    expect(mySeat.y).toBeGreaterThan(rightSeat.y);
+    expect(mySeat.x).toBeGreaterThan(leftSeat.x);
+    expect(rightSeat.x).toBeGreaterThan(mySeat.x);
+    expect(leftSeat.x).toBeLessThan(mySeat.x);
+  });
+
+  it('should auto-sit a disconnected player out after the grace window and expose an I\'m Back action', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    session.setVerifiedMember('player-1', 'Player', 'PLAYER');
+
+    app.snapshot.set({
+      table_id: 'table-1',
+      table_name: 'Test Table',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: 'hand-1',
+      is_hand_running: true,
+      street: 0,
+      current_bet: 0,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: 1,
+      players: [{
+        seat: 1,
+        user_id: 'player-1',
+        username: 'Player',
+        stack: 500,
+        status: 'active',
+        hole_cards: ['As', 'Kd'],
+        in_hand: true,
+        is_connected: false,
+        is_sat_out: false,
+        disconnect_seconds_left: 15
+      }]
+    } as any);
+
+    app.handlePlayerDisconnected();
+    app.disconnectTimer.set(0);
+    app.autoResolveDisconnect();
+
+    expect(app.currentPlayer?.is_connected).toBeFalse();
+    expect(app.currentPlayer?.is_sat_out).toBeTrue();
+    expect(app.isCurrentPlayerSatOut).toBeTrue();
+    app.onImBack();
+    expect(app.currentPlayer?.is_sat_out).toBeFalse();
   });
 
   it('should require a Firebase token before connecting to a table socket', () => {

@@ -81,6 +81,9 @@ input[type=number] { font-variant-numeric: tabular-nums; }
 .empty-table-copy strong { font-family: Georgia, serif; font-size: 13px; font-weight: 400; }
 .empty-table-copy span:last-child { color: #afc2b0; font-size: 9px; }
 .empty-mark { color: #d5bb79; font-size: 14px; }
+.empty-seat-button { position: absolute; z-index: 2; width: clamp(32px, 4vw, 42px); height: clamp(32px, 4vw, 42px); display: grid; place-items: center; transform: translate(-50%, -50%); border: 2px solid #8fc6db; border-radius: 50%; background: rgba(14, 45, 61, 0.82); color: #e6f8ff; box-shadow: 0 0 0 4px rgba(115, 196, 232, 0.18), 0 8px 18px rgba(0, 0, 0, 0.22); cursor: pointer; font-size: clamp(20px, 2.6vw, 28px); font-weight: 700; line-height: 1; }
+.empty-seat-button:hover { background: rgba(20, 58, 76, 0.9); }
+.empty-seat-button span { display: block; transform: translateY(-1px); }
 .player-seat { position: absolute; z-index: 2; width: clamp(108px, 14vw, 154px); min-height: 57px; display: grid; grid-template-columns: 28px minmax(0, 1fr); align-content: center; align-items: center; column-gap: 7px; padding: 7px 8px; transform: translate(-50%, -50%); border: 1px solid #7c9b7c; border-radius: 4px; background: #193c30; color: #f5f1e5; box-shadow: 0 4px 10px #0c281d55; }
 .player-seat.hero-seat { border-color: #d2b26e; background: #223e31; }
 .player-seat.active-seat { box-shadow: 0 0 0 2px #ebc875, 0 5px 13px #0c281d66; }
@@ -235,6 +238,9 @@ input:focus { border-color: #63add3; box-shadow: 0 0 0 2px #58b5e51f; }
 .empty-table-copy strong { font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 600; }
 .empty-table-copy span:last-child { color: #84a9c1; font-size: 8px; }
 .empty-mark { color: #61c8ef; }
+.empty-seat-button { position: absolute; z-index: 2; width: clamp(26px, 7vw, 32px); height: clamp(26px, 7vw, 32px); display: grid; place-items: center; transform: translate(-50%, -50%); border: 2px solid #5db9e8; border-radius: 50%; background: rgba(14, 45, 61, 0.82); color: #e6f8ff; box-shadow: 0 0 0 3px rgba(93, 185, 232, 0.18), 0 7px 15px rgba(0, 0, 0, 0.2); cursor: pointer; font-size: clamp(17px, 4vw, 22px); font-weight: 700; line-height: 1; }
+.empty-seat-button:hover { background: rgba(20, 58, 76, 0.9); }
+.empty-seat-button span { display: block; transform: translateY(-1px); }
 .player-seat { width: clamp(84px, 25vw, 108px); min-height: 46px; grid-template-columns: 22px minmax(0, 1fr); column-gap: 5px; padding: 5px 6px; border-color: #31739a; border-radius: 4px; background: #071c2eeb; box-shadow: 0 4px 12px #00101eaa; }
 .player-seat.hero-seat { border-color: #6dc6ed; background: #0b2c44; }
 .player-seat.active-seat { box-shadow: 0 0 0 2px #71dcff, 0 0 15px #30b8ee88; }
@@ -341,6 +347,14 @@ input:focus { border-color: #63add3; box-shadow: 0 0 0 2px #58b5e51f; }
 .role-destination button { border: 0; background: transparent; color: #b9e8ff; font-size: 8px; }
 .role-destination button span { margin-left: 4px; font-size: 13px; }
 .role-status { color: #89a8bb; font-size: 6px; letter-spacing: .8px; }
+.auth-login-panel { position: absolute; z-index: 4; right: 12px; bottom: 14px; left: 12px; display: grid; gap: 7px; padding: 10px 12px; border: 1px solid #2d5b78; border-radius: 10px; background: rgba(8, 23, 35, 0.82); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18); }
+.auth-header-row { display: flex; align-items: center; justify-content: space-between; }
+.auth-signout { border: 1px solid #3d6782; border-radius: 999px; background: transparent; color: #c5ebff; font-size: 7px; font-weight: 700; padding: 4px 8px; }
+.auth-login-panel label { display: grid; gap: 3px; color: #9cc3d7; font-size: 7px; font-weight: 700; }
+.auth-login-panel input { height: 30px; font-size: 8px; }
+.auth-button { min-height: 30px; border: 1px solid #3b8db6; border-radius: 6px; background: #146d99; color: #edfaff; font-size: 8px; font-weight: 700; }
+.auth-button.secondary { border-color: #8d5ea1; background: #3d2a4a; }
+.login-error { margin: 0; color: #ffb3ad; font-size: 7px; }
 .view-roles-button { margin-left: auto; border: 0; background: transparent; color: #a8ddf5; font-size: 7px; }
 .view-roles-button span { margin-left: 3px; font-size: 11px; }
 .member-nav, .lobby-nav { position: relative; z-index: 5; height: 60px; display: flex; align-items: center; justify-content: space-around; border-top: 1px solid #244b65; background: #071a2a; }
