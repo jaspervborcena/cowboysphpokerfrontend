@@ -12,6 +12,7 @@ export interface ClubMembershipResponse {
 export interface ClubTableSummary {
   table_id: string;
   table_name: string;
+  game?: string;
   is_union_table: boolean;
   union_id: string | null;
   origin_club_id: string | null;
@@ -22,6 +23,14 @@ export interface ClubTableSummary {
   max_seats: number;
   seated_count: number;
   is_hand_running: boolean;
+}
+
+export interface ClubTableCreateRequest {
+  small_blind: number;
+  big_blind: number;
+  buy_in_min: number;
+  buy_in_max: number;
+  table_size: number;
 }
 
 export interface ClubUnionSummary {
@@ -60,6 +69,19 @@ export class ClubApiService {
       phone_number: phoneNumber,
       password
     });
+  }
+
+  requestPhonePasswordReset(apiBase: string, phoneNumber: string): Observable<unknown> {
+    const url = `${apiBase.replace(/\/$/, '')}/auth/phone/password-reset/request`;
+    return this.http.post<unknown>(url, { phone_number: phoneNumber });
+  }
+
+  confirmPhonePasswordReset(
+    apiBase: string,
+    request: { phone_number: string; otp: string; new_password: string }
+  ): Observable<unknown> {
+    const url = `${apiBase.replace(/\/$/, '')}/auth/phone/password-reset/confirm`;
+    return this.http.post<unknown>(url, request);
   }
 
   getMembership(apiBase: string, clubId: string, idToken: string): Observable<ClubMembershipResponse> {

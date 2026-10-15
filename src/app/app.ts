@@ -3,10 +3,13 @@ import { DecimalPipe } from '@angular/common';
 import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom, Observable } from 'rxjs';
-import { ClubApiService, ClubMembershipResponse, ClubTableSummary, ClubUnionSummary } from './core/club-api.service';
+import { ClubApiService, ClubMembershipResponse, ClubTableCreateRequest, ClubTableSummary, ClubUnionSummary } from './core/club-api.service';
+import { parseAuthIdentifier } from './core/auth-identifier';
 import { FirebaseAuthService } from './core/firebase-auth.service';
+import { AppRuntimeConfig } from './core/runtime-config';
 import { UserSessionStore } from './core/user-session.store';
 import { HandReplayContainerComponent } from './features/hand-replay/hand-replay-container.component';
+import tableCreationDefaults from './data/table-creation-defaults.json';
 
 type PokerPlayer = {
   seat: number;
@@ -52,6 +55,21 @@ interface LobbyTable {
   unionId?: string;
   originClubId?: string;
   seatedCount?: number;
+  localOnly?: boolean;
+}
+
+interface HomeClubCard {
+  id: string;
+  name: string;
+  titleTop: string;
+  titleBottom: string;
+  subtitle: string;
+  status: string;
+  kind: 'global' | 'club';
+  logoMark?: string;
+  logoColor?: string;
+  creatorId?: string;
+  notice?: string;
 }
 
 @Component({
@@ -68,6 +86,138 @@ export class App implements OnInit, OnDestroy {
   selectedUnionId = signal<string | null>(null);
   tableUnionId = signal<string | null>(null);
   unionCreateOpen = signal(false);
+  lobbyQuickMenuOpen = signal(false);
+  tableCreationStep = signal<'games' | 'settings' | 'template' | null>(null);
+  selectedClubGame = signal<string>(tableCreationDefaults.default_table.game);
+  selectedClubTableMode = signal<'Regular' | 'SNG' | 'MTT'>(tableCreationDefaults.default_table.mode as 'Regular' | 'SNG' | 'MTT');
+  tableDraftName = signal('');
+  tableRulesOpen = signal(true);
+  clubTableRules = signal<Record<string, boolean>>({
+    allInOrFold: false,
+    doubleBoard: false,
+    swapNlh: false,
+    threeOne: false,
+    sushi: false,
+    squid: false,
+    winStreak: false
+  });
+  readonly clubGameOptions = [
+    { id: 'NLH', title: 'NLH', subtitle: 'NO LIMIT HOLD’EM', color: '#2488cd' },
+    { id: '6+', title: '6+', subtitle: '6+ HOLD’EM', color: '#cd4562' },
+    { id: 'PLO', title: 'PLO', subtitle: 'POT LIMIT OMAHA', color: '#159482' },
+    { id: 'FLASH', title: 'FLASH', subtitle: 'FAST-FOLD POKER', color: '#c34552' },
+    { id: 'MIXED', title: 'MIXED', subtitle: 'ROTATING GAMES', color: '#7356c7' },
+    { id: 'TONGITS', title: 'TONGITS', subtitle: 'PHILIPPINES POKER', color: '#1c79bb' },
+    { id: 'OFX', title: 'OFX', subtitle: 'MULTIPLE REGIONS', color: '#b3438b' },
+    { id: 'MATA', title: 'MATA', subtitle: 'MEXICAN POKER', color: '#1a9a77' },
+    { id: 'BADUGI', title: 'BADUGI', subtitle: 'KOREAN POKER', color: '#6748b6' }
+  ];
+  readonly clubTableModes = ['Regular', 'SNG', 'MTT'] as const;
+  readonly clubTableRuleOptions = [
+    { id: 'allInOrFold', label: 'All-in or Fold' },
+    { id: 'doubleBoard', label: 'Double Board' },
+    { id: 'swapNlh', label: 'Swap NLH' },
+    { id: 'threeOne', label: '3-1 Game' },
+    { id: 'sushi', label: 'Sushi Game' },
+    { id: 'squid', label: 'Squid Game' },
+    { id: 'winStreak', label: 'Win Streak' }
+  ];
+  readonly tableTemplateSections = [
+    {
+      title: 'Game Mode',
+      switches: [
+        { id: 'allInOrFold', label: 'All-in or Fold' },
+        { id: 'doubleBoard', label: 'Double Board' },
+        { id: 'swapNlh', label: 'Swap NLH' },
+        { id: 'threeOne', label: '3-1 Game' },
+        { id: 'sushi', label: 'Sushi Game' },
+        { id: 'squid', label: 'Squid Game' },
+        { id: 'winStreak', label: 'Win Streak' },
+        { id: 'bombPot', label: 'Bomb Pot' },
+        { id: 'sevenDeuce', label: 'Seven-Deuce' }
+      ],
+      ranges: []
+    },
+    {
+      title: 'Table Setup',
+      switches: [
+        { id: 'autoStraddle', label: 'Auto-Straddle' },
+        { id: 'voluntaryStraddle', label: 'Voluntary Straddle' }
+      ],
+      ranges: [
+        { id: 'tableSize', label: 'Table Size', min: 2, max: 9, step: 1, unit: '' },
+        { id: 'actionTime', label: 'Action Time', min: 5, max: 60, step: 1, unit: 's' },
+        { id: 'smallBlind', label: 'Small Blind', min: 1, max: 100, step: 1, unit: '' },
+        { id: 'bigBlind', label: 'Big Blind', min: 2, max: 200, step: 1, unit: '' },
+        { id: 'ante', label: 'Ante', min: 0, max: 5, step: 0.1, unit: ' BB' }
+      ]
+    },
+    {
+      title: 'Fees and Duration',
+      switches: [],
+      ranges: [
+        { id: 'fee', label: 'Fee', min: 0, max: 10, step: 0.1, unit: '%' },
+        { id: 'feeCap', label: 'Cap', min: 0, max: 10, step: 0.5, unit: ' BBs' },
+        { id: 'gameLength', label: 'Game Length', min: 1, max: 12, step: 1, unit: 'h' }
+      ]
+    },
+    {
+      title: 'Advanced Settings',
+      switches: [
+        { id: 'careerVpip', label: 'Career VPIP' },
+        { id: 'maintainVpip', label: 'Maintain VPIP' },
+        { id: 'manualCalltime', label: 'Manual Calltime' },
+        { id: 'automaticCalltime', label: 'Automatic Calltime' },
+        { id: 'rathole', label: 'Rathole' },
+        { id: 'takeBreak', label: 'Take a Break' },
+        { id: 'withdrawChips', label: 'Withdraw Chips', enabled: true },
+        { id: 'runItMultiTimes', label: 'Run It Multi-Times', enabled: true },
+        { id: 'insurance', label: 'Insurance', enabled: true },
+        { id: 'evChop', label: 'EV Chop' }
+      ],
+      ranges: [
+        { id: 'buyInMin', label: 'Buy-in', min: 1, max: 1000, step: 1, unit: '' },
+        { id: 'buyInMax', label: 'Max Buy-in', min: 100, max: 5000, step: 50, unit: '' },
+        { id: 'vpipTarget', label: 'Maintain VPIP Target', min: 0, max: 100, step: 1, unit: '%' }
+      ]
+    },
+    {
+      title: 'Access and Restrictions',
+      switches: [
+        { id: 'privateTable', label: 'Private Table' },
+        { id: 'buyInAuthorization', label: 'Buy-in Authorization' },
+        { id: 'randomSeat', label: 'Random Seat' },
+        { id: 'sequentialOpening', label: 'Sequential Opening' },
+        { id: 'gpsRestriction', label: 'GPS Restriction', enabled: true },
+        { id: 'ipRestriction', label: 'IP Restriction', enabled: true },
+        { id: 'captcha', label: 'CAPTCHA' },
+        { id: 'pcRestriction', label: 'PC & Emulator Restriction' },
+        { id: 'emailRestriction', label: 'Email / Third-Party Restriction' },
+        { id: 'regionRestriction', label: 'Region Restriction' },
+        { id: 'banChat', label: 'Ban Chat' },
+        { id: 'muteObservers', label: 'Mute Observers' },
+        { id: 'anonymousTable', label: 'Anonymous Table' }
+      ],
+      ranges: []
+    },
+    {
+      title: 'Results and Automation',
+      switches: [
+        { id: 'autoOpen', label: 'Auto Open', enabled: true },
+        { id: 'autoCopy', label: 'Auto-copy' }
+      ],
+      ranges: [
+        { id: 'autoStart', label: 'Auto Start', min: 2, max: 9, step: 1, unit: '' },
+        { id: 'tableExtension', label: 'Auto Table Extension', min: 1, max: 12, step: 1, unit: ' times' }
+      ]
+    }
+  ];
+  tableTemplateSwitches = signal<Record<string, boolean>>({ ...tableCreationDefaults.default_table.template_settings.switches });
+  tableTemplateRanges = signal<Record<string, number>>({ ...tableCreationDefaults.default_table.template_settings.ranges });
+  tableTemplateResults = signal(tableCreationDefaults.default_table.template_settings.real_time_result_visibility);
+  tableRunItMode = signal(tableCreationDefaults.default_table.template_settings.run_it_multi_times_mode);
+  tableTemplatePassword = signal(tableCreationDefaults.default_table.template_settings.private_password);
+  readonly tableTemplateResultOptions = ['All', 'In the table', 'Player himself'];
   rolesOpen = signal(false);
   roleCards = [
     { role: 'UNION_ADMIN', title: 'Union admin', rights: 'Create and start shared union tables. Club owners cannot create tables on the union floor.' },
@@ -76,23 +226,41 @@ export class App implements OnInit, OnDestroy {
     { role: 'AGENT', title: 'Agent', rights: 'Manage chip transfers for assigned players and view downline summaries.' },
     { role: 'PLAYER', title: 'Player', rights: 'Join tables, request a buy-in, play hands, and view personal hand history. Cannot set a chip balance or see opponents’ private cards.' }
   ];
-  lobbyTables: LobbyTable[] = [
-    { id: 'table-1', name: 'Manila Midnight', game: 'NLH', stakes: '50 / 100', buyIn: '500', players: '5 / 9', status: 'RUNNING', featured: true },
-    { id: 'table-2', name: 'Blue Room', game: 'NLH', stakes: '10 / 20', buyIn: '100', players: '3 / 9', status: 'OPEN' },
-    { id: 'table-3', name: 'High Hand', game: 'PLO', stakes: '100 / 200', buyIn: '2,000', players: '7 / 9', status: 'RUNNING' },
-    { id: 'table-4', name: 'Sunday Club', game: 'NLH', stakes: '25 / 50', buyIn: '250', players: '4 / 9', status: 'OPEN' }
+  homeClubCards: HomeClubCard[] = [
+    { id: 'global-room', name: 'Cowboys Global Room', titleTop: 'COWBOYS', titleBottom: 'GLOBAL', subtitle: 'GLOBAL PLAY ROOM', status: 'MOCK PREVIEW', kind: 'global' },
+    { id: 'demo', name: 'Card Games Manila', titleTop: 'CARD GAMES', titleBottom: 'MANILA', subtitle: 'PRIVATE POKER CLUB', status: 'MOCK PREVIEW', kind: 'club' },
+    { id: 'cebu-preview', name: 'Cebu Night Owls', titleTop: 'CEBU NIGHT', titleBottom: 'OWLS', subtitle: 'MEMBER CLUB', status: 'MOCK PREVIEW', kind: 'club' }
   ];
+  activeClubCardId = signal<string | null>(null);
+  private readonly localClubTables = new Map<string, LobbyTable[]>();
+  clubCardIndex = signal(0);
+  homeMenuOpen = signal(false);
+  clubProfileOpen = signal(false);
+  clubNameDraft = signal('');
+  clubNoticeDraft = signal('');
+  selectedClubLogo = signal('lions');
+  readonly clubLogos = [
+    { id: 'sharks', name: 'SHARKS', mark: 'S', color: '#8648ad' },
+    { id: 'wolves', name: 'WOLVES', mark: 'W', color: '#287db3' },
+    { id: 'eagles', name: 'EAGLES', mark: 'E', color: '#319996' },
+    { id: 'lions', name: 'LIONS', mark: 'L', color: '#29785e' },
+    { id: 'foxes', name: 'FOXES', mark: 'F', color: '#bd633e' }
+  ];
+  get currentClubLogo() {
+    return this.clubLogos.find((item) => item.id === this.selectedClubLogo()) ?? this.clubLogos[3];
+  }
+  lobbyTables: LobbyTable[] = [];
   readonly session: UserSessionStore;
   private readonly clubApi = inject(ClubApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
-  apiBase = 'http://127.0.0.1:8000';
-  clubId = 'demo';
+  apiBase = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__?.apiBase ?? 'http://127.0.0.1:8000';
+  clubId = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__?.clubId ?? 'demo';
   tableId = 'table-1';
-  smallBlind = 50;
-  bigBlind = 100;
-  buyInMin = 100;
-  buyInMax = 1000;
-  tableSize = signal<number>(9);
+  smallBlind = tableCreationDefaults.default_table.create_request_defaults.small_blind;
+  bigBlind = tableCreationDefaults.default_table.create_request_defaults.big_blind;
+  buyInMin = tableCreationDefaults.default_table.create_request_defaults.buy_in_min;
+  buyInMax = tableCreationDefaults.default_table.create_request_defaults.buy_in_max;
+  tableSize = signal<number>(tableCreationDefaults.default_table.create_request_defaults.table_size);
   seatIndex = 0;
   buyInAmount = 500;
   unionTableName = 'Union Main';
@@ -104,10 +272,11 @@ export class App implements OnInit, OnDestroy {
   disconnectTimer = signal<number>(15);
   busy = signal('');
   notice = signal('');
-  loginEmail = signal('');
+  loginIdentifier = signal('');
   loginPassword = signal('');
-  loginPhone = signal('');
-  loginPhonePassword = signal('');
+  authMode = signal<'sign-in' | 'sign-up' | 'forgot-password' | 'reset-phone'>('sign-in');
+  resetOtp = signal('');
+  resetNewPassword = signal('');
   loginError = signal('');
   signingIn = signal(false);
   controlsOpen = signal(false);
@@ -118,6 +287,7 @@ export class App implements OnInit, OnDestroy {
 
   constructor(private readonly http: HttpClient, session: UserSessionStore) {
     this.session = session;
+    this.homeClubCards = [...this.homeClubCards, ...this.readLocalClubs()];
 
     effect(() => {
       this.resolveQueuedPreAction();
@@ -131,6 +301,7 @@ export class App implements OnInit, OnDestroy {
     this.unsubscribeAuthState = this.firebaseAuth.onAuthStateChanged(async (user) => {
       if (!user) {
         this.session.clearSession();
+        this.clearClubData();
         return;
       }
 
@@ -147,7 +318,6 @@ export class App implements OnInit, OnDestroy {
         idToken
       );
       this.loadMemberSession();
-      this.loadLobbyData();
     });
   }
 
@@ -171,6 +341,45 @@ export class App implements OnInit, OnDestroy {
 
   get username(): string {
     return this.session.displayName();
+  }
+
+  get activeClubName(): string {
+    return this.currentClubCard?.name ?? 'Card Games Manila';
+  }
+
+  get activeClubDisplayId(): string {
+    return this.currentClubCard?.id ?? this.clubId;
+  }
+
+  get activeClubRole(): string {
+    if (this.isActiveLocalClubOwner) return 'OWNER';
+    return this.isActiveMockClubPreview ? 'PREVIEW' : this.session.role();
+  }
+
+  get isActiveClubOwner(): boolean {
+    return this.activeClubRole === 'OWNER';
+  }
+
+  private get currentClubCard(): HomeClubCard | undefined {
+    const activeId = this.activeClubCardId() ?? this.clubId;
+    return this.homeClubCards.find((club) => club.id === activeId);
+  }
+
+  private get isActiveLocalClubOwner(): boolean {
+    return !!this.currentClubCard?.creatorId
+      && this.currentClubCard.creatorId === (this.session.firebaseUid() || this.session.memberId());
+  }
+
+  private get isActiveMockClubPreview(): boolean {
+    return !!this.currentClubCard
+      && this.currentClubCard.id !== this.clubId
+      && (this.currentClubCard.kind === 'club' || this.currentClubCard.kind === 'global')
+      && this.currentClubCard.status === 'MOCK PREVIEW'
+      && !this.currentClubCard.creatorId;
+  }
+
+  get isAuthenticated(): boolean {
+    return this.session.firebaseIdToken() !== null;
   }
 
   get currentPlayer(): PokerPlayer | undefined {
@@ -205,6 +414,56 @@ export class App implements OnInit, OnDestroy {
     this.controlsOpen.update((open) => !open);
   }
 
+  toggleHomeMenu(): void {
+    this.homeMenuOpen.update((open) => !open);
+  }
+
+  openCreateClub(): void {
+    this.homeMenuOpen.set(false);
+    this.clubNameDraft.set('');
+    this.clubNoticeDraft.set('');
+    this.selectedClubLogo.set('lions');
+    this.clubProfileOpen.set(true);
+  }
+
+  saveClubProfile(): void {
+    const name = this.clubNameDraft().trim();
+    if (!name) return;
+    const creatorId = this.session.firebaseUid() || this.session.memberId();
+    if (!creatorId) {
+      this.notice.set('Sign in before creating a club profile.');
+      return;
+    }
+
+    const logo = this.currentClubLogo;
+    this.homeClubCards = [...this.homeClubCards, {
+      id: `local-club-${Date.now()}`,
+      name,
+      titleTop: name,
+      titleBottom: 'CLUB',
+      subtitle: this.clubNoticeDraft().trim() || logo.name,
+      status: 'LOCAL PREVIEW',
+      kind: 'club',
+      logoMark: logo.mark,
+      logoColor: logo.color,
+      creatorId,
+      notice: this.clubNoticeDraft().trim()
+    }];
+    this.persistLocalClubs();
+    this.clubCardIndex.set(this.homeClubCards.length - 1);
+    this.clubProfileOpen.set(false);
+    this.notice.set('Club profile added as a local preview. Server-side club creation is not connected.');
+  }
+
+  closeClubProfile(): void {
+    this.clubProfileOpen.set(false);
+  }
+
+  showFriendTableNotice(): void {
+    this.homeMenuOpen.set(false);
+    this.notice.set('Friend tables are not connected yet.');
+  }
+
   private async finalizeSignedInUser(label: string): Promise<void> {
     const idToken = await this.firebaseAuth.getCurrentIdToken();
     const user = await this.firebaseAuth.getCurrentUser();
@@ -227,30 +486,70 @@ export class App implements OnInit, OnDestroy {
   async signOutCurrentUser(): Promise<void> {
     await this.firebaseAuth.signOut();
     this.session.clearSession();
-    this.loginEmail.set('');
+    this.loginIdentifier.set('');
     this.loginPassword.set('');
-    this.loginPhone.set('');
-    this.loginPhonePassword.set('');
     this.loginError.set('');
     this.notice.set('Signed out.');
   }
 
-  async signInWithEmailPassword(): Promise<void> {
-    if (!this.loginEmail() || !this.loginPassword()) {
-      this.loginError.set('Enter an email and password to continue.');
+  async continueWithIdentifier(): Promise<void> {
+    const identifier = parseAuthIdentifier(this.loginIdentifier());
+    const password = this.loginPassword();
+    if (identifier.type === 'invalid') {
+      this.loginError.set('Enter a valid email or Philippine phone number.');
+      return;
+    }
+    if (!password) {
+      this.loginError.set('Enter your password to continue.');
       return;
     }
 
     this.signingIn.set(true);
     this.loginError.set('');
-    const ok = await this.firebaseAuth.signInWithEmailAndPassword(this.loginEmail(), this.loginPassword());
-    if (!ok) {
-      this.loginError.set('Email sign-in failed. Check your Firebase auth setup.');
-      this.signingIn.set(false);
+    if (this.authMode() === 'sign-up') {
+      if (identifier.type !== 'email') {
+        this.loginError.set('Phone account creation is not available yet. Use email sign-up for now.');
+        this.signingIn.set(false);
+        return;
+      }
+
+      const creationResult = await this.firebaseAuth.createEmailAccount(identifier.value, password);
+      if (!creationResult.success) {
+        this.loginError.set(this.emailAccountCreationError(creationResult.code));
+        this.signingIn.set(false);
+        return;
+      }
+
+      await this.finalizeSignedInUser(identifier.value);
+      this.notice.set('Global account created. Club access is separate and uses club invitations.');
       return;
     }
 
-    await this.finalizeSignedInUser(this.loginEmail());
+    if (identifier.type === 'email') {
+      const ok = await this.firebaseAuth.signInWithEmailAndPassword(identifier.value, password);
+      if (!ok) {
+        this.loginError.set('Email sign-in failed. Check your email and password.');
+        this.signingIn.set(false);
+        return;
+      }
+      await this.finalizeSignedInUser(identifier.value);
+      return;
+    }
+
+    try {
+      const response = await firstValueFrom(this.clubApi.signInWithPhonePassword(
+        this.baseUrl(),
+        identifier.value,
+        password
+      ));
+      const signedIn = await this.firebaseAuth.signInWithCustomToken(response.firebase_custom_token);
+      if (!signedIn) throw new Error('Firebase rejected the custom token.');
+
+      await this.finalizeSignedInUser(identifier.value);
+    } catch {
+      this.loginError.set('Phone sign-in failed. Check your phone number and password.');
+      this.signingIn.set(false);
+    }
   }
 
   async signInWithGoogle(): Promise<void> {
@@ -266,31 +565,84 @@ export class App implements OnInit, OnDestroy {
     await this.finalizeSignedInUser('google-user');
   }
 
-  async signInWithPhone(): Promise<void> {
-    const phoneNumber = this.loginPhone().trim();
-    const password = this.loginPhonePassword();
-    if (!phoneNumber || !password) {
-      this.loginError.set('Enter your phone number and password to continue.');
+  toggleAuthMode(): void {
+    this.authMode.update((mode) => mode === 'sign-in' ? 'sign-up' : 'sign-in');
+    this.loginError.set('');
+  }
+
+  private emailAccountCreationError(code: string): string {
+    const messages: Record<string, string> = {
+      'firebase/not-configured': 'Firebase is not configured. Add your Firebase web settings to public/app-config.json.',
+      'firebase/initialization-failed': 'Firebase could not initialize. Check the Firebase settings in public/app-config.json.',
+      'auth/email-already-in-use': 'An account already uses this email. Sign in or use Forgot password.',
+      'auth/weak-password': 'Choose a stronger password. Firebase requires at least 6 characters.',
+      'auth/operation-not-allowed': 'Email/password sign-up is disabled. Enable it in Firebase Authentication settings.',
+      'auth/invalid-email': 'Enter a valid email address.'
+    };
+    return messages[code] ?? `Account creation failed (${code}). Check Firebase Authentication settings.`;
+  }
+
+  async requestPasswordReset(): Promise<void> {
+    const identifier = parseAuthIdentifier(this.loginIdentifier());
+    if (identifier.type === 'invalid') {
+      this.loginError.set('Enter your account email or Philippine phone number first.');
+      return;
+    }
+
+    this.signingIn.set(true);
+    this.loginError.set('');
+    if (identifier.type === 'email') {
+      const requested = await this.firebaseAuth.sendEmailPasswordReset(identifier.value);
+      this.signingIn.set(false);
+      this.notice.set('If an account matches that email, password reset instructions have been sent.');
+      if (!requested) this.loginError.set('Unable to send reset instructions. Check your Firebase configuration.');
+      return;
+    }
+
+    try {
+      await firstValueFrom(this.clubApi.requestPhonePasswordReset(this.baseUrl(), identifier.value));
+      this.authMode.set('reset-phone');
+      this.notice.set('If an account matches that number, a reset code has been sent.');
+    } catch {
+      this.notice.set('If an account matches that number, a reset code has been sent.');
+      this.loginError.set('Unable to request a reset code. Try again later.');
+    } finally {
+      this.signingIn.set(false);
+    }
+  }
+
+  async confirmPhonePasswordReset(): Promise<void> {
+    const identifier = parseAuthIdentifier(this.loginIdentifier());
+    if (identifier.type !== 'phone' || !this.resetOtp().trim() || !this.resetNewPassword()) {
+      this.loginError.set('Enter the reset code and a new password.');
       return;
     }
 
     this.signingIn.set(true);
     this.loginError.set('');
     try {
-      const response = await firstValueFrom(this.clubApi.signInWithPhonePassword(
-        this.baseUrl(),
-        phoneNumber,
-        password
-      ));
-      const signedIn = await this.firebaseAuth.signInWithCustomToken(response.firebase_custom_token);
-      if (!signedIn) throw new Error('Firebase rejected the custom token.');
-
-      await this.finalizeSignedInUser(phoneNumber);
-      this.loginPhonePassword.set('');
+      await firstValueFrom(this.clubApi.confirmPhonePasswordReset(this.baseUrl(), {
+        phone_number: identifier.value,
+        otp: this.resetOtp().trim(),
+        new_password: this.resetNewPassword()
+      }));
+      this.authMode.set('sign-in');
+      this.loginPassword.set('');
+      this.resetOtp.set('');
+      this.resetNewPassword.set('');
+      this.notice.set('Password reset successfully. Sign in with your new password.');
     } catch {
-      this.loginError.set('Phone sign-in failed. Check your phone number and password.');
+      this.loginError.set('Password reset failed. Check the code and try again.');
+    } finally {
       this.signingIn.set(false);
     }
+  }
+
+  cancelPasswordReset(): void {
+    this.authMode.set('sign-in');
+    this.resetOtp.set('');
+    this.resetNewPassword.set('');
+    this.loginError.set('');
   }
 
   chooseEmptySeat(seat: number): void {
@@ -303,10 +655,66 @@ export class App implements OnInit, OnDestroy {
     this.screen.set('home');
   }
 
+  moveClubSelection(direction: -1 | 1): void {
+    this.selectClubCard(this.clubCardIndex() + direction);
+  }
+
+  selectClubCard(index: number): void {
+    const count = this.homeClubCards.length;
+    this.clubCardIndex.set((index % count + count) % count);
+  }
+
+  openClubCard(card: HomeClubCard): void {
+    if (card.creatorId && card.creatorId === (this.session.firebaseUid() || this.session.memberId())) {
+      this.activeClubCardId.set(card.id);
+      this.clubCardIndex.set(this.homeClubCards.findIndex((club) => club.id === card.id));
+      this.lobbyScope.set('club');
+      this.lobbyTables = this.localClubTables.get(card.id) ?? [];
+      this.unions.set([]);
+      this.unionTables.set([]);
+      this.enterLobby();
+      this.notice.set(`Welcome to ${card.name}. You are the local preview owner.`);
+      return;
+    }
+    if (card.id !== this.clubId) {
+      this.activeClubCardId.set(card.id);
+      this.clubCardIndex.set(this.homeClubCards.findIndex((club) => club.id === card.id));
+      this.lobbyScope.set('club');
+      this.lobbyTables = [];
+      this.unions.set([]);
+      this.unionTables.set([]);
+      this.enterLobby();
+      this.notice.set(`${card.name} is a preview room. Live tables and club services are not connected.`);
+      return;
+    }
+    this.activeClubCardId.set(card.id);
+    this.enterLobby();
+  }
+
   enterLobby(game = 'ALL'): void {
     this.lobbyGame.set(game);
     this.screen.set('lobby');
+    if (this.isActiveLocalClubOwner) {
+      this.lobbyTables = this.localClubTables.get(this.activeClubDisplayId) ?? [];
+      this.unions.set([]);
+      this.unionTables.set([]);
+      return;
+    }
+    if (this.isActiveMockClubPreview) {
+      this.lobbyTables = [];
+      this.unions.set([]);
+      this.unionTables.set([]);
+      return;
+    }
     this.loadLobbyData();
+  }
+
+  openPrivateTable(): void {
+    if (this.isActiveMockClubPreview) {
+      this.notice.set('Private tables are not connected in this club preview.');
+      return;
+    }
+    this.openTable('table-1');
   }
 
   openTable(tableId: string, unionId: string | null = null): void {
@@ -319,7 +727,26 @@ export class App implements OnInit, OnDestroy {
   selectLobbyScope(scope: 'club' | 'union'): void {
     this.lobbyScope.set(scope);
     this.unionCreateOpen.set(false);
+    this.lobbyQuickMenuOpen.set(false);
     if (scope === 'union' && this.selectedUnionId()) this.loadUnionTables();
+  }
+
+  toggleLobbyQuickMenu(): void {
+    this.lobbyQuickMenuOpen.update((open) => !open);
+  }
+
+  closeLobbyQuickMenu(): void {
+    this.lobbyQuickMenuOpen.set(false);
+  }
+
+  openLobbyMessages(): void {
+    this.lobbyQuickMenuOpen.set(false);
+    this.notice.set('Messages are not available in this backend.');
+  }
+
+  openLobbyShortcutUnavailable(label: string): void {
+    this.lobbyQuickMenuOpen.set(false);
+    this.notice.set(`${label} is not available in this backend.`);
   }
 
   selectUnion(unionId: string): void {
@@ -331,8 +758,160 @@ export class App implements OnInit, OnDestroy {
     this.unionCreateOpen.update((open) => !open);
   }
 
+  canCreateClubTables(): boolean {
+    return this.isActiveLocalClubOwner || (
+      this.activeClubDisplayId === this.clubId
+      && this.session.membershipStatus() === 'verified'
+      && ['OWNER', 'MANAGER'].includes(this.session.role())
+    );
+  }
+
+  openClubTableWizard(): void {
+    if (this.lobbyScope() !== 'club') {
+      this.notice.set('Switch to Club Tables before setting up a club table.');
+      return;
+    }
+    this.tableCreationStep.set('games');
+    this.notice.set(this.canCreateClubTables()
+      ? ''
+      : 'Preview only. A verified club Owner or Manager is required to create this table.');
+  }
+
+  chooseClubGame(gameId: string): void {
+    this.selectedClubGame.set(gameId);
+    this.tableCreationStep.set('settings');
+  }
+
+  toggleTableRules(): void {
+    this.tableRulesOpen.update((open) => !open);
+  }
+
+  toggleClubTableRule(ruleId: string): void {
+    this.clubTableRules.update((rules) => ({ ...rules, [ruleId]: !rules[ruleId] }));
+  }
+
+  saveClubTableDraft(): void {
+    this.notice.set('Table setup saved in this session.');
+  }
+
+  openTableTemplate(): void {
+    this.selectedClubGame.set('NLH');
+    this.selectedClubTableMode.set('Regular');
+    this.tableCreationStep.set('template');
+    this.notice.set('');
+  }
+
+  toggleTableTemplateSwitch(id: string): void {
+    this.tableTemplateSwitches.update((values) => ({ ...values, [id]: !values[id] }));
+  }
+
+  setTableTemplateRange(id: string, value: string): void {
+    this.tableTemplateRanges.update((values) => ({ ...values, [id]: Number(value) }));
+  }
+
+  createTableFromTemplate(): void {
+    if (!this.canCreateClubTables()) {
+      this.notice.set('A verified club Owner or Manager is required to create this table.');
+      return;
+    }
+    if (this.selectedClubGame() !== tableCreationDefaults.default_table.game
+      || this.selectedClubTableMode() !== tableCreationDefaults.default_table.mode) {
+      this.notice.set('The current backend supports Regular NLH tables only.');
+      return;
+    }
+
+    const tableName = this.tableDraftName().trim();
+    const tableId = tableName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (!tableId) {
+      this.notice.set('Enter a table name before creating it.');
+      return;
+    }
+
+    const ranges = this.tableTemplateRanges();
+    this.smallBlind = Number(ranges['smallBlind'] ?? tableCreationDefaults.default_table.create_request_defaults.small_blind);
+    this.bigBlind = Number(ranges['bigBlind'] ?? tableCreationDefaults.default_table.create_request_defaults.big_blind);
+    this.buyInMin = Number(ranges['buyInMin'] ?? tableCreationDefaults.default_table.create_request_defaults.buy_in_min);
+    this.buyInMax = Number(ranges['buyInMax'] ?? tableCreationDefaults.default_table.create_request_defaults.buy_in_max);
+    this.tableSize.set(Number(ranges['tableSize'] ?? tableCreationDefaults.default_table.create_request_defaults.table_size));
+
+    const successMessage = `Table created with ${this.smallBlind}/${this.bigBlind} micro blinds. Advanced template settings are not applied by the current backend.`;
+    if (this.isActiveLocalClubOwner) {
+      const table: LobbyTable = {
+        id: tableId,
+        name: tableName,
+        game: this.selectedClubGame(),
+        stakes: `${this.smallBlind} / ${this.bigBlind}`,
+        buyIn: `${this.buyInMin} - ${this.buyInMax}`,
+        players: `0 / ${this.tableSize()}`,
+        status: 'OPEN',
+        seatedCount: 0,
+        localOnly: true
+      };
+      const tables = this.localClubTables.get(this.activeClubDisplayId) ?? [];
+      this.localClubTables.set(this.activeClubDisplayId, [...tables, table]);
+      this.lobbyTables = [...tables, table];
+      this.tableCreationStep.set(null);
+      this.notice.set(`Local table created with ${this.smallBlind}/${this.bigBlind} micro blinds. Advanced template settings and server gameplay are not connected.`);
+      return;
+    }
+
+    this.tableId = tableId;
+    this.createTable(successMessage);
+  }
+
+  createClubTableFromWizard(): void {
+    if (!this.canCreateClubTables()) {
+      this.notice.set('A verified club Owner or Manager is required to create this table.');
+      return;
+    }
+    if (this.tableCreationStep() === 'template') {
+      this.createTableFromTemplate();
+      return;
+    }
+    if (this.selectedClubGame() !== 'NLH'
+      || this.selectedClubTableMode() !== 'Regular'
+      || Object.values(this.clubTableRules()).some(Boolean)) {
+      this.notice.set('The current backend supports Regular NLH tables only. Other games and rules are not connected yet.');
+      return;
+    }
+
+    const tableId = this.tableDraftName().trim().toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    if (!tableId) {
+      this.notice.set('Enter a table name before creating it.');
+      return;
+    }
+
+    if (this.isActiveLocalClubOwner) {
+      const clubId = this.activeClubDisplayId;
+      const table: LobbyTable = {
+        id: tableId,
+        name: this.tableDraftName().trim(),
+        game: this.selectedClubGame(),
+        stakes: `${this.smallBlind} / ${this.bigBlind}`,
+        buyIn: `${this.buyInMin} - ${this.buyInMax}`,
+        players: `0 / ${this.tableSize()}`,
+        status: 'OPEN',
+        seatedCount: 0,
+        localOnly: true
+      };
+      const tables = this.localClubTables.get(clubId) ?? [];
+      this.localClubTables.set(clubId, [...tables, table]);
+      this.lobbyTables = [...tables, table];
+      this.tableCreationStep.set(null);
+      this.notice.set('Table added to this local club room. Server gameplay is not connected.');
+      return;
+    }
+
+    this.tableId = tableId;
+    this.createTable();
+  }
+
   get visibleLobbyTables(): LobbyTable[] {
-    return this.lobbyScope() === 'union' ? this.unionTables() : this.lobbyTables;
+    const tables = this.lobbyScope() === 'union' ? this.unionTables() : this.lobbyTables;
+    if (this.lobbyGame() === 'ALL' || this.lobbyGame() === 'MTT') return tables;
+    return tables.filter((table) => table.game.toUpperCase() === this.lobbyGame().toUpperCase());
   }
 
   openReplay(): void {
@@ -385,27 +964,35 @@ export class App implements OnInit, OnDestroy {
         if (this.session.firebaseIdToken() !== idToken) return;
         this.session.setVerifiedMember(membership.user_id, membership.username, membership.role, idToken);
         this.notice.set(`Authenticated as ${membership.username} (${membership.role}).`);
+        this.loadLobbyData();
       },
-      error: () => {
+      error: (error: unknown) => {
         if (this.session.firebaseIdToken() !== idToken) return;
+        this.clearClubData();
+        if (error instanceof HttpErrorResponse && error.status === 403) {
+          this.session.membershipStatus.set('not-a-member');
+          this.notice.set('Your global account is active. Club access requires an accepted club invitation.');
+          return;
+        }
         this.session.membershipStatus.set('unavailable');
-        this.notice.set('Unable to verify your club membership. Table and management access are unavailable.');
+        this.notice.set('Unable to verify club access right now. Your global account remains active.');
       }
     });
   }
 
   private loadLobbyData(): void {
     const idToken = this.session.firebaseIdToken();
-    if (!idToken) return;
+    if (!idToken
+      || this.session.membershipStatus() !== 'verified'
+      || this.activeClubDisplayId !== this.clubId) return;
 
     this.clubApi.getTables(this.baseUrl(), this.clubId, idToken).subscribe({
       next: (tables: ClubTableSummary[]) => {
-        if (tables.length > 0) {
-          this.lobbyTables = tables.map((table) => this.toLobbyTable(table));
-        }
+        this.lobbyTables = tables.map((table) => this.toLobbyTable(table));
       },
       error: () => {
-        this.notice.set('No live club data is available yet; demo lobby data is active.');
+        this.lobbyTables = [];
+        this.notice.set('Unable to load club tables. Try again later.');
       }
     });
     this.clubApi.getUnions(this.baseUrl(), this.clubId, idToken).subscribe({
@@ -430,6 +1017,13 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  private clearClubData(): void {
+    this.lobbyTables = [];
+    this.unions.set([]);
+    this.unionTables.set([]);
+    this.selectedUnionId.set(null);
+  }
+
   private loadUnionTables(): void {
     const idToken = this.session.firebaseIdToken();
     const unionId = this.selectedUnionId();
@@ -450,7 +1044,7 @@ export class App implements OnInit, OnDestroy {
     return {
       id: table.table_id,
       name: table.table_name,
-      game: 'NLH',
+      game: table.game?.toUpperCase() || 'NLH',
       stakes: `${table.small_blind} / ${table.big_blind}`,
       buyIn: `${table.buy_in_min} - ${table.buy_in_max}`,
       players: `${table.seated_count} / ${table.max_seats}`,
@@ -461,19 +1055,20 @@ export class App implements OnInit, OnDestroy {
     };
   }
 
-  createTable(): void {
+  createTable(successMessage = 'Table created.'): void {
     if (!this.session.canManageTables()) return;
     const idToken = this.requireFirebaseToken('creating a table');
     if (!idToken) return;
-    this.runRequest('create', () => this.http.post(this.tableUrl(), {
+    const request: ClubTableCreateRequest = {
       small_blind: Number(this.smallBlind),
       big_blind: Number(this.bigBlind),
       buy_in_min: Number(this.buyInMin),
       buy_in_max: Number(this.buyInMax),
       table_size: Number(this.tableSize())
-    }, {
+    };
+    this.runRequest('create', () => this.http.post(this.tableUrl(), request, {
       headers: { Authorization: `Bearer ${idToken}` }
-    }));
+    }), successMessage);
   }
 
   createUnionTable(): void {
@@ -713,15 +1308,19 @@ export class App implements OnInit, OnDestroy {
     return 'The request could not be completed.';
   }
 
-  private runRequest<T>(key: string, request: () => Observable<T>): void {
+  private runRequest<T>(key: string, request: () => Observable<T>, successMessage?: string): void {
     this.busy.set(key);
     this.notice.set('');
     request().subscribe({
       next: (response) => {
         if (key !== 'create') this.snapshot.set(response as TableSnapshot);
         if (key === 'seat') this.pendingBuyInId = null;
-        this.notice.set(key === 'create' ? 'Table created.' : key === 'seat' ? 'Player seated.' : 'Hand started.');
+        this.notice.set(successMessage ?? (key === 'create' ? 'Table created.' : key === 'seat' ? 'Player seated.' : 'Hand started.'));
         this.busy.set('');
+        if (key === 'create') {
+          this.tableCreationStep.set(null);
+          this.loadLobbyData();
+        }
         if (key === 'start') this.controlsOpen.set(false);
         if (key === 'start' && this.socketStatus() !== 'connected') this.connectTable();
       },
@@ -785,6 +1384,36 @@ export class App implements OnInit, OnDestroy {
 
   private tableUrl(): string {
     return `${this.baseUrl()}/clubs/${encodeURIComponent(this.clubId.trim())}/tables/${encodeURIComponent(this.tableId.trim())}`;
+  }
+
+  private readLocalClubs(): HomeClubCard[] {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem('cowboys-local-clubs') ?? '[]');
+      if (!Array.isArray(saved)) return [];
+      return saved.filter((club): club is HomeClubCard =>
+        typeof club === 'object'
+        && club !== null
+        && 'id' in club && typeof club.id === 'string'
+        && 'name' in club && typeof club.name === 'string'
+        && 'titleTop' in club && typeof club.titleTop === 'string'
+        && 'titleBottom' in club && typeof club.titleBottom === 'string'
+        && 'subtitle' in club && typeof club.subtitle === 'string'
+        && 'status' in club && typeof club.status === 'string'
+        && 'creatorId' in club && typeof club.creatorId === 'string'
+        && 'kind' in club && club.kind === 'club'
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private persistLocalClubs(): void {
+    try {
+      const ownedClubs = this.homeClubCards.filter((club) => !!club.creatorId);
+      localStorage.setItem('cowboys-local-clubs', JSON.stringify(ownedClubs));
+    } catch {
+      this.notice.set('This club profile is available until the page is closed.');
+    }
   }
 
   private closeSocket(): void {

@@ -1,6 +1,9 @@
 import { Injectable } from '@angular/core';
 
 export type FirebaseConfig = Record<string, string>;
+export type EmailAccountCreationResult =
+  | { success: true }
+  | { success: false; code: string };
 
 declare global {
   interface Window {
@@ -96,6 +99,42 @@ export class FirebaseAuthService {
     try {
       const { signInWithEmailAndPassword } = await import('firebase/auth');
       await signInWithEmailAndPassword(this.auth, email, password);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async createEmailAccount(email: string, password: string): Promise<EmailAccountCreationResult> {
+    const config = window.__COWBOYS_FIREBASE_CONFIG__ ?? null;
+    if (!config) return { success: false, code: 'firebase/not-configured' };
+    if (!email || !password) return { success: false, code: 'auth/missing-email-or-password' };
+
+    await this.initialize(config);
+    if (!this.auth) return { success: false, code: 'firebase/initialization-failed' };
+
+    try {
+      const { createUserWithEmailAndPassword } = await import('firebase/auth');
+      await createUserWithEmailAndPassword(this.auth, email, password);
+      return { success: true };
+    } catch (error: unknown) {
+      const code = typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+        ? error.code
+        : 'auth/unknown';
+      return { success: false, code };
+    }
+  }
+
+  async sendEmailPasswordReset(email: string): Promise<boolean> {
+    const config = window.__COWBOYS_FIREBASE_CONFIG__ ?? null;
+    if (!config || !email) return false;
+
+    await this.initialize(config);
+    if (!this.auth) return false;
+
+    try {
+      const { sendPasswordResetEmail } = await import('firebase/auth');
+      await sendPasswordResetEmail(this.auth, email);
       return true;
     } catch {
       return false;

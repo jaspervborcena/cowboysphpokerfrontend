@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "default_table": {
+    "game": "NLH",
+    "mode": "Regular",
+    "create_request_defaults": {
+      "small_blind": 1,
+      "big_blind": 2,
+      "buy_in_min": 50,
+      "buy_in_max": 1000,
+      "table_size": 9
+    },
+    "template_settings": {
+      "ranges": {
+        "tableSize": 9,
+        "actionTime": 15,
+        "smallBlind": 1,
+        "bigBlind": 2,
+        "ante": 0,
+        "fee": 4.5,
+        "feeCap": 3,
+        "gameLength": 1,
+        "buyInMin": 50,
+        "buyInMax": 1000,
+        "vpipTarget": 10,
+        "autoStart": 2,
+        "tableExtension": 12
+      },
+      "switches": {
+        "allInOrFold": false,
+        "doubleBoard": false,
+        "swapNlh": false,
+        "threeOne": false,
+        "sushi": false,
+        "squid": false,
+        "winStreak": false,
+        "bombPot": false,
+        "sevenDeuce": false,
+        "autoStraddle": false,
+        "voluntaryStraddle": false,
+        "careerVpip": false,
+        "maintainVpip": false,
+        "manualCalltime": false,
+        "automaticCalltime": false,
+        "rathole": false,
+        "takeBreak": false,
+        "withdrawChips": true,
+        "runItMultiTimes": true,
+        "insurance": true,
+        "evChop": false,
+        "privateTable": false,
+        "buyInAuthorization": false,
+        "randomSeat": false,
+        "sequentialOpening": false,
+        "gpsRestriction": true,
+        "ipRestriction": true,
+        "captcha": false,
+        "pcRestriction": false,
+        "emailRestriction": false,
+        "regionRestriction": false,
+        "banChat": false,
+        "muteObservers": false,
+        "anonymousTable": false,
+        "autoOpen": true,
+        "autoCopy": false
+      },
+      "run_it_multi_times_mode": "Player’s Choice",
+      "real_time_result_visibility": "In the table",
+      "private_password": ""
+    }
+  }
+}

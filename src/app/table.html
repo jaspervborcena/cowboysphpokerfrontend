@@ -1,22 +1,41 @@
 <div class="app-shell">
+  <div class="app-content" [attr.inert]="isAuthenticated ? null : ''" [attr.aria-hidden]="isAuthenticated ? null : 'true'">
   @if (screen() === 'home') {
     <header class="member-topbar">
       <div class="member-avatar">{{ username.slice(0, 1).toUpperCase() }}</div>
-      <div class="member-identity"><strong>{{ username }}</strong><span>ID: {{ userId }}</span><small>{{ session.membershipStatus() === 'verified' ? session.role() : 'PLAYER' }}</small></div>
+      <div class="member-identity"><strong>{{ username }}</strong><span>ID: {{ userId }}</span><small>{{ session.membershipStatus() === 'verified' ? session.role() : session.membershipStatus() === 'not-a-member' ? 'GLOBAL PLAYER' : 'PLAYER' }}</small></div>
       <div class="member-wallet"><span>♢</span><div><small>CLUB CHIPS</small><strong>{{ currentPlayer ? (currentPlayer.stack | number) : '—' }}</strong></div><button type="button" aria-label="Open club lobby" (click)="enterLobby()">+</button></div>
+      <button class="member-session-signout" type="button" aria-label="Sign out" title="Sign out" (click)="signOutCurrentUser()">↪</button>
       <button class="member-menu" type="button" (click)="toggleControls()" aria-label="Open member controls">☰</button>
     </header>
     <main class="home-screen">
       <div class="club-hall">
-        <div class="hall-icons"><button type="button" aria-label="Home">⌂</button><button type="button" aria-label="Search club">⌕</button></div>
-        <div class="club-sign"><span>MEMBER CLUB</span><strong>CLUB</strong><b>♢ 8 ♢</b></div>
-        <button class="club-display" type="button" (click)="enterLobby()">
-          <span class="club-ribbon">♛ <i>♦</i> ♠</span>
-          <span class="club-poster"><b>CARD GAMES<br>MANILA</b><small>POKER CLUB</small><i>♠ ♥ ♣ ♦</i></span>
-          <span class="club-count">♧ 1,754 members online</span>
-          <span class="club-display-name">Card Games Manila</span>
-          <span class="club-display-id">CLUB ID: 843625</span>
-        </button>
+        <div class="hall-icons"><button type="button" aria-label="Home" aria-haspopup="menu" [attr.aria-expanded]="homeMenuOpen()" (click)="toggleHomeMenu()">⌂</button><button type="button" aria-label="Search club">⌕</button></div>
+        @if (homeMenuOpen()) {
+          <div class="hall-home-menu" role="menu" aria-label="Home actions">
+            <button type="button" role="menuitem" (click)="openCreateClub()"><span aria-hidden="true">♜</span>Create A Club</button>
+            <button type="button" role="menuitem" (click)="showFriendTableNotice()"><span aria-hidden="true">♧</span>Friend Table</button>
+          </div>
+        }
+        <div class="club-sign"><span>{{ homeClubCards[clubCardIndex()].kind === 'global' ? 'GLOBAL PLAY' : 'YOUR CLUBS' }}</span><strong>COWBOYS</strong><b>♢ 8 ♢</b></div>
+        <button class="club-carousel-arrow club-carousel-arrow-left" type="button" aria-label="Previous club" (click)="moveClubSelection(-1)">‹</button>
+        @for (club of homeClubCards; track club.id; let index = $index) {
+          @if (index === clubCardIndex()) {
+            <button class="club-display" [class.global-club-display]="club.kind === 'global'" [style.--club-emblem-color]="club.logoColor ?? null" type="button" [attr.aria-label]="'Open ' + club.name" (click)="openClubCard(club)">
+              <span class="club-ribbon">{{ club.kind === 'global' ? 'GLOBAL' : (club.logoMark ?? '♛') }} <i>♦</i> ♠</span>
+              <span class="club-poster"><b>{{ club.titleTop }}<br>{{ club.titleBottom }}</b><small>{{ club.subtitle }}</small><i>♠ ♥ ♣ ♦</i></span>
+              <span class="club-count">{{ club.status }}</span>
+              <span class="club-display-name">{{ club.name }}</span>
+              <span class="club-display-id">{{ club.kind === 'global' ? 'GLOBAL ROOM' : 'CLUB PREVIEW' }}</span>
+            </button>
+          }
+        }
+        <button class="club-carousel-arrow club-carousel-arrow-right" type="button" aria-label="Next club" (click)="moveClubSelection(1)">›</button>
+        <div class="club-carousel-pagination" aria-label="Select a club">
+          @for (club of homeClubCards; track club.id; let index = $index) {
+            <button type="button" [attr.aria-label]="'Show ' + club.name" [attr.aria-current]="index === clubCardIndex() ? 'true' : null" [class.selected]="index === clubCardIndex()" (click)="selectClubCard(index)"></button>
+          }
+        </div>
         <div class="hall-ropes" aria-hidden="true"><span></span><span></span></div>
       </div>
 
@@ -37,7 +56,7 @@
         } @else if (session.canUseAgentDesk()) {
           <span class="role-stamp">AGENT DESK <b>DOWNLINE &amp; CHIPS</b></span>
         } @else {
-          <span class="role-stamp">CLUB MEMBER <b>PLAYER ACCESS</b></span>
+          <span class="role-stamp">{{ session.membershipStatus() === 'not-a-member' ? 'GLOBAL ACCOUNT' : 'CLUB MEMBER' }} <b>{{ session.membershipStatus() === 'not-a-member' ? 'ACCOUNT ACTIVE' : 'PLAYER ACCESS' }}</b></span>
         }
         <button class="view-roles-button" type="button" (click)="openRoleGuide()">View roles <span>↗</span></button>
         @if (session.canManageTables()) {
@@ -45,29 +64,10 @@
         } @else if (session.canUseAgentDesk()) {
           <button type="button" (click)="notice.set('Agent services require the authenticated club ledger.')">Open agent desk <span>↗</span></button>
         } @else {
-          <span class="role-status">{{ session.membershipStatus() === 'loading' ? 'VERIFYING MEMBERSHIP' : session.membershipStatus() === 'unavailable' ? 'MEMBERSHIP UNAVAILABLE' : 'PLAYER ACCESS' }}</span>
+          <span class="role-status">{{ session.membershipStatus() === 'loading' ? 'VERIFYING CLUB ACCESS' : session.membershipStatus() === 'not-a-member' ? 'GLOBAL ACCOUNT · ACCEPT A CLUB INVITATION' : session.membershipStatus() === 'unavailable' ? 'CLUB ACCESS UNAVAILABLE' : 'PLAYER ACCESS' }}</span>
         }
       </div>
 
-      <div class="auth-login-panel">
-        <div class="auth-header-row">
-          <span class="eyebrow">SIGN IN</span>
-          <button type="button" class="auth-signout" (click)="signOutCurrentUser()">Sign out</button>
-        </div>
-        <label>Email<input type="email" [value]="loginEmail()" (input)="loginEmail.set($any($event.target).value)" placeholder="you@example.com"></label>
-        <label>Password<input type="password" [value]="loginPassword()" (input)="loginPassword.set($any($event.target).value)" placeholder="Password"></label>
-        <button type="button" class="auth-button" [disabled]="signingIn()" (click)="signInWithEmailPassword()">{{ signingIn() ? 'Signing in…' : 'Email / Password' }}</button>
-
-        <button type="button" class="auth-button secondary" [disabled]="signingIn()" (click)="signInWithGoogle()">Continue with Google</button>
-
-        <label>Phone number<input type="tel" [value]="loginPhone()" (input)="loginPhone.set($any($event.target).value)" placeholder="+63 912 345 6789" autocomplete="tel"></label>
-        <label>Phone password<input type="password" [value]="loginPhonePassword()" (input)="loginPhonePassword.set($any($event.target).value)" placeholder="Password" autocomplete="current-password"></label>
-        <button type="button" class="auth-button" [disabled]="signingIn()" (click)="signInWithPhone()">{{ signingIn() ? 'Signing in…' : 'Phone / Password' }}</button>
-
-        @if (loginError()) {
-          <p class="login-error" role="alert">{{ loginError() }}</p>
-        }
-      </div>
     </main>
     <nav class="member-nav" aria-label="Member navigation">
       @if (session.canUseAgentDesk() || session.canManageTables() || session.canManageClub()) {
@@ -82,13 +82,13 @@
     <header class="lobby-topbar">
       <button class="lobby-back" type="button" (click)="goHome()" aria-label="Back to clubhouse">‹</button>
       <div class="lobby-club-mark">♛</div>
-      <div class="lobby-club-name"><strong>Card Games Manila</strong><span>ID: 843625 · {{ session.membershipStatus() === 'verified' ? session.role() : 'PLAYER' }}</span></div>
+      <div class="lobby-club-name"><strong>{{ activeClubName }}</strong><span>{{ activeClubRole === 'OWNER' && activeClubDisplayId.startsWith('local-club-') ? 'LOCAL CLUB' : 'ID: ' + activeClubDisplayId }} · {{ activeClubRole }}</span></div>
       <div class="lobby-wallet"><span>♢</span><strong>{{ currentPlayer ? (currentPlayer.stack | number) : '—' }}</strong></div>
       <button class="lobby-search" type="button" aria-label="Search tables">⌕</button>
     </header>
     <main class="lobby-screen">
       <section class="club-lobby-banner">
-        <div class="lobby-banner-copy"><span>WELCOME TO MANILA</span><h1>Card Games<br>Manila Club</h1><small>♧ 1,754 members online</small></div>
+        <div class="lobby-banner-copy"><span>WELCOME TO {{ activeClubName }}</span><h1>{{ activeClubName }}<br>Club</h1><small>{{ activeClubDisplayId.startsWith('local-club-') ? 'LOCAL CLUB ROOM' : '♧ 1,754 members online' }}</small></div>
         <div class="jackpot-sign"><span>BAD BEAT</span><strong>JACKPOT</strong><b>₱0,450,555</b></div>
       </section>
 
@@ -126,14 +126,12 @@
       <div class="lobby-status-row"><span><i></i> Running</span><span><i></i> Open seats</span><button type="button" aria-label="Filter tables">▽</button></div>
 
       <div class="lobby-promo-row">
-        <button class="private-table-card" type="button" (click)="openTable('table-1')"><span>♙ PRIVATE</span><strong>TABLE</strong><small>Invite-only games</small></button>
-        <button class="color-jackpot-card" type="button" (click)="selectLobbyGame('NLH')"><span>♢</span><strong>JACKPOT</strong><small>COLOR GAME</small></button>
+        <button class="create-table-card" type="button" aria-label="Create a new table" (click)="openClubTableWizard()"><span aria-hidden="true">＋</span><strong>Create a new table</strong></button>
+        <button class="private-table-card" type="button" (click)="openPrivateTable()"><span class="private-table-art"><small>♙ PRIVATE</small><strong>TABLE</strong></span><small class="promo-caption">Invite-only games</small></button>
       </div>
 
       <div class="lobby-section-heading"><div><span class="eyebrow">{{ lobbyScope() === 'union' ? 'SHARED UNION LOBBY' : 'CLUB TABLE DIRECTORY' }}</span><h2>{{ lobbyScope() === 'union' ? 'Union tables' : (lobbyGame() === 'MTT' ? 'Tournaments' : 'Cash games') }}</h2></div>
-        @if (lobbyScope() === 'club' && session.canManageTables()) {
-          <button type="button" (click)="toggleControls()">＋ Create table</button>
-        } @else if (lobbyScope() === 'union' && session.canManageUnion(selectedUnionId())) {
+        @if (lobbyScope() === 'union' && session.canManageUnion(selectedUnionId())) {
           <button type="button" (click)="toggleUnionCreate()">＋ Create union table</button>
         }
       </div>
@@ -150,33 +148,151 @@
       }
       <div class="table-list">
         @for (table of visibleLobbyTables; track table.id) {
-          @if (lobbyGame() === 'ALL' || lobbyGame() === 'MTT' || table.game === lobbyGame()) {
-            <article class="lobby-table-card" [class.featured-table]="table.featured">
-              <div class="table-card-top"><span class="game-badge">{{ table.game }}</span><span class="table-state" [class.running]="table.status === 'RUNNING'">{{ table.status }}</span></div>
-              <h3>{{ table.name }}</h3>
-              @if (lobbyScope() === 'union') { <span class="table-origin-tag">Hosted by {{ table.originClubId }}</span> }
-              <div class="table-card-stats"><span><small>BLINDS</small><b>{{ table.stakes }}</b></span><span><small>BUY-IN</small><b>{{ table.buyIn }}</b></span><span><small>SEATS</small><b>{{ table.players }}</b></span></div>
-              <div class="lobby-table-actions">
+          <article class="lobby-table-card" [class.featured-table]="table.featured">
+            <div class="table-card-top"><span class="game-badge">{{ table.game }}</span><span class="table-state" [class.running]="table.status === 'RUNNING'">{{ table.status }}</span></div>
+            <h3>{{ table.name }}</h3>
+            @if (lobbyScope() === 'union') { <span class="table-origin-tag">Hosted by {{ table.originClubId }}</span> }
+            <div class="table-card-stats"><span><small>BLINDS</small><b>{{ table.stakes }}</b></span><span><small>BUY-IN</small><b>{{ table.buyIn }}</b></span><span><small>SEATS</small><b>{{ table.players }}</b></span></div>
+            <div class="lobby-table-actions">
+              @if (table.localOnly) {
+                <button type="button" disabled title="Backend table service is not connected">Local preview</button>
+              } @else {
                 <button type="button" (click)="openTable(table.id, lobbyScope() === 'union' ? selectedUnionId() : null)">Join table <span>↗</span></button>
-                @if (lobbyScope() === 'union' && table.seatedCount === 0 && session.canManageUnion(table.unionId ?? null)) {
-                  <button class="union-delete-button" type="button" (click)="deleteUnionTable(table)" [disabled]="busy() !== ''" [attr.aria-label]="'Delete empty table ' + table.name" title="Delete empty table">×</button>
-                }
-              </div>
-            </article>
-          }
+              }
+              @if (lobbyScope() === 'union' && table.seatedCount === 0 && session.canManageUnion(table.unionId ?? null)) {
+                <button class="union-delete-button" type="button" (click)="deleteUnionTable(table)" [disabled]="busy() !== ''" [attr.aria-label]="'Delete empty table ' + table.name" title="Delete empty table">×</button>
+              }
+            </div>
+          </article>
         } @empty {
-          <p class="union-empty-note">{{ lobbyScope() === 'union' ? 'No shared tables are open in this union.' : 'No club tables are open.' }}</p>
+          <div class="lobby-empty-state">
+            <p class="union-empty-note">{{ lobbyScope() === 'union' ? 'No shared tables are open in this union.' : 'No club tables are open.' }}</p>
+            @if (lobbyScope() === 'club' && canCreateClubTables()) {
+              <button class="empty-create-table-button" type="button" (click)="openClubTableWizard()">＋ Create first table</button>
+            }
+          </div>
         }
       </div>
       @if (notice()) { <p class="lobby-notice" role="status">{{ notice() }}</p> }
     </main>
-    <nav class="lobby-nav" aria-label="Club navigation">
-      <button type="button" class="active"><span>♧</span>Tables</button>
-      @if (session.canUseAgentDesk()) { <button type="button"><span>♢</span>Agent desk</button> }
-      @if (session.canManageClub()) { <button type="button"><span>⚙</span>Club admin</button> }
-      <button type="button" (click)="openRoleGuide()"><span>♧</span>Roles</button>
-      <button type="button" (click)="goHome()"><span>♙</span>Member</button>
-    </nav>
+    <aside class="lobby-shortcuts" aria-label="Lobby shortcuts">
+      <button class="lobby-shortcut union-shortcut" type="button" aria-label="Union tables" title="Union tables" (click)="selectLobbyScope('union')"><span>♧</span></button>
+      <button class="lobby-shortcut" type="button" aria-label="Messages" title="Messages" (click)="openLobbyMessages()"><span>▱</span></button>
+      <button class="lobby-shortcut" type="button" aria-label="Create a new table" title="Create a new table" (click)="openClubTableWizard()"><span>＋</span></button>
+    </aside>
+    @if (!lobbyQuickMenuOpen()) {
+      <button class="lobby-bottom-menu" type="button" aria-label="Open lobby shortcuts" title="Open lobby shortcuts" aria-expanded="false" (click)="toggleLobbyQuickMenu()">☰</button>
+    }
+    @if (lobbyQuickMenuOpen()) {
+      <nav class="lobby-shortcut-bar" aria-label="Lobby shortcuts">
+        <button type="button" (click)="openLobbyMessages()"><span>✉</span><small>Message</small></button>
+        <button type="button" (click)="closeLobbyQuickMenu(); goHome()"><span>♙</span><small>Member</small></button>
+        <button type="button" (click)="openLobbyShortcutUnavailable('Cashier')"><span>♙</span><small>Cashier</small></button>
+        <button type="button" (click)="openLobbyShortcutUnavailable('Data')"><span>◷</span><small>Data</small></button>
+        <button type="button" (click)="closeLobbyQuickMenu(); openRoleGuide()"><span>⚙</span><small>Admin</small></button>
+        <button class="lobby-shortcut-close" type="button" aria-label="Close lobby shortcuts" title="Close" (click)="closeLobbyQuickMenu()">×</button>
+      </nav>
+    }
+    @if (tableCreationStep() === 'games') {
+      <div class="table-wizard-backdrop">
+        <section class="table-wizard game-picker" role="dialog" aria-modal="true" aria-labelledby="game-picker-title">
+          <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set(null)" aria-label="Close game selection">‹‹</button><h2 id="game-picker-title">Choose a game</h2><span aria-hidden="true">HD</span></header>
+          @if (!canCreateClubTables()) { <p class="table-wizard-notice">Preview only. Creating a table requires a verified club Owner or Manager.</p> }
+          <div class="game-picker-grid">
+            @for (game of clubGameOptions; track game.id) {
+              <button class="game-choice" type="button" [attr.data-game]="game.id" [style.--game-color]="game.color" (click)="chooseClubGame(game.id)">
+                <strong>{{ game.title }}</strong><small>{{ game.subtitle }}</small><span aria-hidden="true">↗</span>
+              </button>
+            }
+          </div>
+          <button class="table-template-button" type="button" (click)="openTableTemplate()">♧ &nbsp; Table Template</button>
+        </section>
+      </div>
+    }
+    @if (tableCreationStep() === 'settings') {
+      <div class="table-wizard-backdrop">
+        <section class="table-wizard table-settings" role="dialog" aria-modal="true" aria-labelledby="table-settings-title">
+          <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set('games')" aria-label="Back to game selection">‹‹</button><h2 id="table-settings-title">{{ selectedClubGame() }}</h2><span aria-hidden="true">HD</span></header>
+          <div class="table-mode-tabs" role="tablist" aria-label="Table mode">
+            @for (mode of clubTableModes; track mode) {
+              <button type="button" role="tab" [attr.aria-selected]="selectedClubTableMode() === mode" [class.selected]="selectedClubTableMode() === mode" (click)="selectedClubTableMode.set($any(mode))">{{ mode }}</button>
+            }
+          </div>
+          <form class="table-settings-form" (ngSubmit)="createClubTableFromWizard()">
+            <label class="table-name-field"><input name="tableDraftName" maxlength="48" required [value]="tableDraftName()" (input)="tableDraftName.set($any($event.target).value)" placeholder="Enter table name here"></label>
+            <button class="table-rules-heading" type="button" [attr.aria-expanded]="tableRulesOpen()" (click)="toggleTableRules()"><span>Game Mode</span><span aria-hidden="true">{{ tableRulesOpen() ? '⌃' : '⌄' }}</span></button>
+            @if (tableRulesOpen()) {
+              <div class="table-rules-list">
+                @for (rule of clubTableRuleOptions; track rule.id) {
+                  <label class="table-rule-row"><span>{{ rule.label }} <small aria-hidden="true">ⓘ</small></span><button type="button" role="switch" [attr.aria-checked]="clubTableRules()[rule.id]" [class.enabled]="clubTableRules()[rule.id]" (click)="toggleClubTableRule(rule.id)"><i></i>{{ clubTableRules()[rule.id] ? 'ON' : 'OFF' }}</button></label>
+                }
+              </div>
+            }
+            <div class="table-settings-numbers">
+              <label>Small blind<input type="number" name="smallBlind" min="1" required [(ngModel)]="smallBlind"></label>
+              <label>Big blind<input type="number" name="bigBlind" min="1" required [(ngModel)]="bigBlind"></label>
+              <label>Buy-in min<input type="number" name="buyInMin" min="1" required [(ngModel)]="buyInMin"></label>
+              <label>Buy-in max<input type="number" name="buyInMax" min="1" required [(ngModel)]="buyInMax"></label>
+              <label>Seats<select name="tableSize" [ngModel]="tableSize()" (ngModelChange)="tableSize.set($event)"><option [ngValue]="6">6</option><option [ngValue]="8">8</option><option [ngValue]="9">9</option></select></label>
+            </div>
+            <div class="table-wizard-actions"><button type="button" (click)="saveClubTableDraft()">Save</button><button type="submit" [disabled]="busy() !== ''">{{ busy() === 'create' ? 'Creating…' : 'Create' }}</button></div>
+          </form>
+          @if (notice()) { <p class="table-wizard-notice" role="status">{{ notice() }}</p> }
+        </section>
+      </div>
+    }
+    @if (tableCreationStep() === 'template') {
+      <div class="table-wizard-backdrop">
+        <section class="table-wizard table-template-editor" role="dialog" aria-modal="true" aria-labelledby="template-title">
+          <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set('games')" aria-label="Back to game selection">‹‹</button><h2 id="template-title">{{ selectedClubGame() }}</h2><span aria-hidden="true">HD</span></header>
+          <div class="table-mode-tabs" role="tablist" aria-label="Table mode">
+            @for (mode of clubTableModes; track mode) {
+              <button type="button" role="tab" [attr.aria-selected]="selectedClubTableMode() === mode" [class.selected]="selectedClubTableMode() === mode" (click)="selectedClubTableMode.set($any(mode))">{{ mode }}</button>
+            }
+          </div>
+          <div class="table-template-scroll">
+            <label class="table-name-field"><input name="templateTableName" maxlength="48" [value]="tableDraftName()" (input)="tableDraftName.set($any($event.target).value)" placeholder="Enter table name here"></label>
+            @for (section of tableTemplateSections; track section.title) {
+              <section class="template-option-section">
+                <h3>{{ section.title }}</h3>
+                @for (range of section.ranges; track range.id) {
+                  <label class="template-range-row">
+                    <span>{{ range.label }}: <strong>{{ tableTemplateRanges()[range.id] }}{{ range.unit }}</strong></span>
+                    <input type="range" [min]="range.min" [max]="range.max" [step]="range.step" [value]="tableTemplateRanges()[range.id]" (input)="setTableTemplateRange(range.id, $any($event.target).value)">
+                  </label>
+                }
+                @for (item of section.switches; track item.id) {
+                  <div class="template-switch-row">
+                    <span>{{ item.label }} <small aria-hidden="true">ⓘ</small></span>
+                    <button type="button" role="switch" [attr.aria-checked]="tableTemplateSwitches()[item.id] || false" [class.enabled]="tableTemplateSwitches()[item.id]" (click)="toggleTableTemplateSwitch(item.id)"><i></i>{{ tableTemplateSwitches()[item.id] ? 'ON' : 'OFF' }}</button>
+                  </div>
+                  @if (item.id === 'privateTable' && tableTemplateSwitches()[item.id]) {
+                    <label class="template-password"><span>Private table password</span><input type="text" [value]="tableTemplatePassword()" (input)="tableTemplatePassword.set($any($event.target).value)" placeholder="Use English letters or digits"></label>
+                  }
+                  @if (item.id === 'runItMultiTimes' && tableTemplateSwitches()[item.id]) {
+                    <div class="template-radio-options" role="radiogroup" aria-label="Run it multi-times mode">
+                      @for (choice of ['Player’s Choice', 'Mandatory Run it Twice', 'Mandatory Run it 3 Times']; track choice) {
+                        <button type="button" role="radio" [attr.aria-checked]="tableTemplateResults() === choice" [class.selected]="tableTemplateResults() === choice" (click)="tableTemplateResults.set(choice)">{{ choice }}</button>
+                      }
+                    </div>
+                  }
+                }
+                @if (section.title === 'Results and Automation') {
+                  <div class="template-result-options" role="radiogroup" aria-label="Real time result visibility">
+                    <span>Real Time Result</span>
+                    @for (choice of tableTemplateResultOptions; track choice) {
+                      <button type="button" role="radio" [attr.aria-checked]="tableRunItMode() === choice" [class.selected]="tableRunItMode() === choice" (click)="tableRunItMode.set(choice)">{{ choice }}</button>
+                    }
+                  </div>
+                }
+              </section>
+            }
+          </div>
+          @if (notice()) { <p class="table-wizard-notice" role="status">{{ notice() }}</p> }
+          <footer class="table-wizard-actions"><button type="button" (click)="saveClubTableDraft()">Save</button><button type="button" (click)="createClubTableFromWizard()">Create</button></footer>
+        </section>
+      </div>
+    }
   } @else if (screen() === 'replay') {
     <app-hand-replay-container
       [apiBase]="baseUrl()"
@@ -415,6 +531,66 @@
             </article>
           }
         </div>
+      </section>
+    </div>
+  }
+  @if (clubProfileOpen()) {
+    <div class="club-profile-backdrop" (click)="closeClubProfile()">
+      <section class="club-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="club-profile-title" (click)="$event.stopPropagation()">
+        <header class="club-profile-header">
+          <h2 id="club-profile-title">Club Profile</h2>
+          <button type="button" aria-label="Close club profile" (click)="closeClubProfile()">×</button>
+        </header>
+        <div class="club-profile-emblem" [style.--emblem-color]="currentClubLogo.color">
+          <span>{{ currentClubLogo.mark }}</span>
+          <strong>{{ currentClubLogo.name }}</strong>
+          <small aria-hidden="true">CAMERA</small>
+        </div>
+        <div class="club-logo-picker" role="group" aria-label="Choose club emblem">
+          @for (logo of clubLogos; track logo.id) {
+            <button type="button" [class.selected]="selectedClubLogo() === logo.id" [attr.aria-pressed]="selectedClubLogo() === logo.id" [attr.aria-label]="logo.name + ' emblem'" [style.--emblem-color]="logo.color" (click)="selectedClubLogo.set(logo.id)">
+              <span>{{ logo.mark }}</span><small>{{ logo.name }}</small>
+            </button>
+          }
+        </div>
+        <form class="club-profile-form" (ngSubmit)="saveClubProfile()">
+          <label><span>Club Name</span><input name="clubName" maxlength="32" required [value]="clubNameDraft()" (input)="clubNameDraft.set($any($event.target).value)" placeholder="Enter a club name"></label>
+          <label><span>Notice</span><textarea name="clubNotice" maxlength="300" [value]="clubNoticeDraft()" (input)="clubNoticeDraft.set($any($event.target).value)" placeholder="Welcome message"></textarea></label>
+          <button class="club-profile-save" type="submit">Save</button>
+        </form>
+      </section>
+    </div>
+  }
+  </div>
+  @if (!isAuthenticated) {
+    <div class="auth-gate-backdrop">
+      <section class="auth-login-panel auth-gate-panel" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title">
+        <div class="auth-header-row">
+          <span id="auth-dialog-title" class="eyebrow">{{ authMode() === 'sign-up' ? 'CREATE ACCOUNT' : authMode() === 'forgot-password' || authMode() === 'reset-phone' ? 'RESET PASSWORD' : 'SIGN IN' }}</span>
+        </div>
+        <label>Email or phone number<input type="text" autofocus [value]="loginIdentifier()" (input)="loginIdentifier.set($any($event.target).value)" placeholder="Email or phone (+639… or 09…)" autocomplete="username"></label>
+        @if (authMode() === 'sign-in' || authMode() === 'sign-up') {
+          <label>Password<input type="password" [value]="loginPassword()" (input)="loginPassword.set($any($event.target).value)" placeholder="Password" autocomplete="current-password"></label>
+          <button type="button" class="auth-button" [disabled]="signingIn()" (click)="continueWithIdentifier()">{{ signingIn() ? 'Please wait…' : authMode() === 'sign-up' ? 'Create account' : 'Sign in' }}</button>
+        }
+        @if (authMode() === 'forgot-password') {
+          <button type="button" class="auth-button" [disabled]="signingIn()" (click)="requestPasswordReset()">{{ signingIn() ? 'Sending…' : 'Send reset instructions' }}</button>
+        }
+        @if (authMode() === 'reset-phone') {
+          <label>Reset code<input type="text" inputmode="numeric" autocomplete="one-time-code" [value]="resetOtp()" (input)="resetOtp.set($any($event.target).value)" placeholder="SMS code"></label>
+          <label>New password<input type="password" autocomplete="new-password" [value]="resetNewPassword()" (input)="resetNewPassword.set($any($event.target).value)" placeholder="New password"></label>
+          <button type="button" class="auth-button" [disabled]="signingIn()" (click)="confirmPhonePasswordReset()">{{ signingIn() ? 'Resetting…' : 'Reset password' }}</button>
+        }
+        @if (authMode() === 'sign-in') {
+          <button type="button" class="auth-signout auth-mode-toggle" [disabled]="signingIn()" (click)="authMode.set('forgot-password'); loginError.set('')">Forgot password?</button>
+          <button type="button" class="auth-button secondary" [disabled]="signingIn()" (click)="signInWithGoogle()">Continue with Google</button>
+        }
+        @if (authMode() === 'sign-in' || authMode() === 'sign-up') {
+          <button type="button" class="auth-signout auth-mode-toggle" [disabled]="signingIn()" (click)="toggleAuthMode()">{{ authMode() === 'sign-up' ? 'Already have an account? Sign in' : 'New here? Create account' }}</button>
+        } @else {
+          <button type="button" class="auth-signout auth-mode-toggle" [disabled]="signingIn()" (click)="cancelPasswordReset()">Back to sign in</button>
+        }
+        @if (loginError()) { <p class="login-error" role="alert">{{ loginError() }}</p> }
       </section>
     </div>
   }

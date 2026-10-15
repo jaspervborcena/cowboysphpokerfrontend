@@ -10,6 +10,10 @@ describe('FirebaseAuthService', () => {
   it('returns null when Firebase is not configured', async () => {
     const service = TestBed.inject(FirebaseAuthService);
     await expectAsync(service.getCurrentIdToken()).toBeResolvedTo(null);
+    await expectAsync(service.createEmailAccount('player@example.com', 'pass1234')).toBeResolvedTo({
+      success: false,
+      code: 'firebase/not-configured'
+    });
   });
 
   it('recognizes a configured Firebase auth setup and rejects empty sign-in values', async () => {
@@ -26,6 +30,11 @@ describe('FirebaseAuthService', () => {
     expect(service.isConfigured()).toBeTrue();
     expect(typeof service.onAuthStateChanged).toBe('function');
     await expectAsync(service.signInWithEmailAndPassword('', '')).toBeResolvedTo(false);
+    await expectAsync(service.createEmailAccount('', '')).toBeResolvedTo({
+      success: false,
+      code: 'auth/missing-email-or-password'
+    });
+    await expectAsync(service.sendEmailPasswordReset('')).toBeResolvedTo(false);
     await expectAsync(service.signInWithGoogle()).toBeResolvedTo(false);
     await expectAsync(service.signInWithCustomToken('')).toBeResolvedTo(false);
   });

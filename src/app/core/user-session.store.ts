@@ -1,11 +1,12 @@
 import { computed, Injectable, signal } from '@angular/core';
 
 export type ClubRole = 'OWNER' | 'MANAGER' | 'AGENT' | 'PLAYER' | 'UNION_ADMIN';
-export type MembershipStatus = 'signed-out' | 'loading' | 'verified' | 'unavailable';
+export type MembershipStatus = 'signed-out' | 'loading' | 'verified' | 'not-a-member' | 'unavailable';
 
 @Injectable({ providedIn: 'root' })
 export class UserSessionStore {
   readonly memberId = signal('');
+  readonly firebaseUid = signal('');
   readonly displayName = signal('Guest');
   readonly role = signal<ClubRole>('PLAYER');
   readonly firebaseIdToken = signal<string | null>(null);
@@ -45,6 +46,7 @@ export class UserSessionStore {
   setAuthenticatedIdentity(memberId: string, displayName: string, firebaseIdToken: string): void {
     if (this.memberId() !== memberId) this.unionAdminIds.set([]);
     this.memberId.set(memberId);
+    this.firebaseUid.set(memberId);
     this.displayName.set(displayName);
     this.role.set('PLAYER');
     this.firebaseIdToken.set(firebaseIdToken);
@@ -53,6 +55,7 @@ export class UserSessionStore {
 
   clearSession(): void {
     this.memberId.set('');
+    this.firebaseUid.set('');
     this.displayName.set('Guest');
     this.role.set('PLAYER');
     this.firebaseIdToken.set(null);
