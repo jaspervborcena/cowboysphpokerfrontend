@@ -79,14 +79,14 @@ export class FirebaseAuthService {
     };
   }
 
-  async getCurrentIdToken(): Promise<string | null> {
+  async getCurrentIdToken(forceRefresh = false): Promise<string | null> {
     const config = window.__COWBOYS_FIREBASE_CONFIG__ ?? null;
     if (!config) return null;
 
     await this.initialize(config);
     if (!this.auth?.currentUser) return null;
 
-    return this.auth.currentUser.getIdToken();
+    return this.auth.currentUser.getIdToken(forceRefresh);
   }
 
   async signInWithEmailAndPassword(email: string, password: string): Promise<boolean> {

@@ -13,12 +13,13 @@ The Angular client implements clubhouse, lobby, live-table, union-table, and han
 - A least-privilege `PLAYER` state while membership is loading; elevated roles come from the backend membership response.
 - Configurable API base URL, club ID, and Firebase web config loaded before Angular starts.
 - A home-icon menu with Create A Club and Friend Table actions. A created profile is saved in browser storage, its creator can reopen the local room as OWNER, and that room can contain non-joinable table previews; server-side club creation, table play, and friend-table invites are not connected.
-- A consistent Club lobby action row for every role; Create a new table is disabled unless the active role is an authorized Owner or Manager. Authorized users can open the game/settings wizard from the action row or empty state. Only Regular NLH with all special rules off is currently submitted; the backend contract does not yet support the other variants or settings.
-- Table creation defaults live in [src/app/data/table-creation-defaults.json](src/app/data/table-creation-defaults.json): Regular NLH, 1/2 blinds, 50-1,000 buy-in, and 9 seats. Name-only creation uses these micro defaults. The API currently accepts only blinds, buy-in limits, and table size; advanced template settings are not sent.
-- Each returned table is shown in its own card with game, status, blinds, buy-in range, and seat counts. The API's optional `game` label is displayed when present; older responses default to NLH.
+- A consistent Club lobby action row for every role. Anyone can open the game picker; only verified Owners and Managers can submit creation. The picker is loaded from `GET /games` and offers only entries with `create_supported: true`. When the catalog is unavailable, creation is disabled instead of guessing supported variants.
+- Table creation defaults live in [src/app/data/table-creation-defaults.json](src/app/data/table-creation-defaults.json): NLH, 1/2 blinds, 50-1,000 buy-in, and 9 seats. Create requests include `game_id`, blinds, buy-in limits, and `table_size`; unsupported modes and advanced template settings are not offered for server-created tables.
+- Each returned table is shown in its own card with the catalog-resolved `game_id`, status, blinds, buy-in range, and seat counts. Missing game identifiers are not presented as NLH.
 - Table creation/seating/hand-start requests, authenticated websocket setup, and replay API integration.
+- Live-table sockets use WebSocket protocol v1 envelopes, force-refresh Firebase tokens for each connection, answer `PING`, and reconnect with a new full server snapshot. Player actions include `action_id`; pre-actions use `PRE_ACTION` and are displayed from the player's snapshot. The client does not locally resolve turns or change seat/connectivity state after disconnects.
 - Live club tables are membership-gated and show actual empty/error results rather than demo rows. Mock Club and Global Room cards open isolated preview lobbies; only the configured club connects to backend data, and global play/invitation-based club switching are not connected.
-- A client-side disconnect/sit-out presentation. It is not authoritative disconnect protection; the server must enforce timers and actions.
+- Server-provided disconnect and sit-out state only. Disconnect protection, timers, and actions remain backend-authoritative.
 
 This is not yet a production-ready end-to-end client. The API and websocket backend must implement and enforce the contracts below. Home-screen club cards are mock previews; the live lobby does not substitute sample rows when table data is empty or unavailable.
 
@@ -47,6 +48,7 @@ After an Owner or Manager enters a table name, the client slugifies it for `{tab
 
 ```json
 {
+	"game_id": "no_limit_texas_holdem",
 	"small_blind": 1,
 	"big_blind": 2,
 	"buy_in_min": 50,
@@ -55,7 +57,7 @@ After an Owner or Manager enters a table name, the client slugifies it for `{tab
 }
 ```
 
-The full JSON also defines UI defaults for game variants, fees, restrictions, and advanced options. Those extra fields are not sent because the current backend create-table schema only supports the five fields above. Update the backend contract before expecting those settings to affect a server-created table. Preview-room tables remain local-only.
+The JSON also defines defaults for modes and advanced settings, but current create endpoints support only `game_id`, blinds, buy-in bounds, and table capacity. The UI obtains playable game choices from `GET /games`; only entries marked `create_supported` are offered. Table capacity must be between 2 and 9 for the current frontend layout. The client temporarily accepts `max_seats` from older table summaries, but uses `table_size` when supplied.
 
 ## Role model
 
@@ -70,7 +72,7 @@ The full JSON also defines UI defaults for game variants, fees, restrictions, an
 The current navigation rule is intentional:
 
 - `PLAYER` only sees the `ROLES` item in the member nav
-- `AGENT`, `MANAGER`, and `OWNER` can access the full member menu for shop, message, MTT, career, and roles
+- `AGENT`, `MANAGER`, and `OWNER` can access the member menu for shop, message, MTT, career, and roles; MTT is disabled until tournament endpoints exist
 
 These checks are currently UI-level only. They are not security controls. The backend must re-validate identity and role on every REST and WebSocket endpoint before allowing privileged actions.
 
@@ -79,6 +81,7 @@ These checks are currently UI-level only. They are not security controls. The ba
 This frontend assumes a backend exists for the following endpoints and behavior:
 
 - health check at `/health`
+- game catalog at `GET /games`; the UI uses `active_game_id`, `game_id`, `display_name`, and `create_supported`
 - table creation and setup
 - seat assignment with `buy_in_amount`
 - table list or club-lobby data
@@ -96,9 +99,11 @@ An authenticated Firebase account is globally valid; club membership is separate
 
 The replay feature is split into a token-authenticated API service, signal store, container, and presentation components under `src/app/features/hand-replay/`. Private hand history requests require the active Firebase ID token from the authenticated session.
 
-At startup, Firebase web configuration defaults to `src/environments/environment.ts`. The app fetches `/app-config.json` before Angular starts; `apiBase` and `clubId` come from that file, and its optional `firebase` object overrides the Firebase default. Firebase web config is public client configuration, not a server secret, and its API key should be restricted in Google Cloud Console. Protected club and union requests use the Firebase ID token. Club tables load only after club membership is verified, and there are no sample table rows when a list is empty or unavailable. Union seats are debited from the selected home club; the shared socket URL omits the player ID and authenticates with the token plus `club_id` in its first message.
+At startup, Firebase web configuration defaults to `src/environments/environment.ts`. The app fetches `/app-config.json` before Angular starts; `apiBase` and `clubId` come from that file, and its optional `firebase` object overrides the Firebase default. Firebase web config is public client configuration, not a server secret, and its API key should be restricted in Google Cloud Console. Protected club and union requests use the Firebase ID token. Club tables load only after club membership is verified, and there are no sample table rows when a list is empty or unavailable. Union seats are debited from the selected home club. The socket URL omits the player ID; its first v1 `AUTHENTICATE` envelope carries the token and, for union play, the home `club_id`.
 
-The browser's disconnect timer and optimistic seat flags are presentation only. The backend must own heartbeat deadlines, auto-check/fold behavior, sit-out state, reconnect rules, and table snapshots.
+The backend owns heartbeat deadlines, auto-check/fold behavior, sit-out state, reconnect rules, and table snapshots. The frontend replies to `PING` with `PONG`, authenticates again after reconnect, and replaces local state with the full `TABLE_SNAPSHOT`. It does not claim that reconnecting performs a sit-in action.
+
+WebSocket table messages use protocol version `1.0`, exact local/union topic names, and `event` envelopes with `correlation_id`. Actions are sent as `PLAYER_ACTION` with a fresh `action_id`; pre-actions use `PRE_ACTION`, and the selected value is read from the player's next full snapshot.
 
 ## Local development
 

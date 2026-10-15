@@ -1,11 +1,12 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { DecimalPipe } from '@angular/common';
-import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom, Observable } from 'rxjs';
-import { ClubApiService, ClubMembershipResponse, ClubTableCreateRequest, ClubTableSummary, ClubUnionSummary } from './core/club-api.service';
+import { ClubApiService, ClubMembershipResponse, ClubTableCreateRequest, ClubTableSummary, ClubUnionSummary, GameCatalogResponse } from './core/club-api.service';
 import { parseAuthIdentifier } from './core/auth-identifier';
 import { FirebaseAuthService } from './core/firebase-auth.service';
+import { TableActionPayload, TableSocketErrorPayload, TableWebSocketEnvelope } from './core/table-websocket.models';
 import { AppRuntimeConfig } from './core/runtime-config';
 import { UserSessionStore } from './core/user-session.store';
 import { HandReplayContainerComponent } from './features/hand-replay/hand-replay-container.component';
@@ -23,11 +24,15 @@ type PokerPlayer = {
   is_sat_out?: boolean;
   disconnect_seconds_left?: number;
   club_id?: string | null;
+  pre_action?: 'CHECK_FOLD' | 'FOLD' | 'CALL_ANY' | null;
 };
 
 type TableSnapshot = {
   table_id: string;
   table_name: string;
+  game_id?: string;
+  table_size?: number;
+  max_seats?: number;
   is_union_table: boolean;
   union_id: string | null;
   origin_club_id: string | null;
@@ -46,6 +51,7 @@ type TableSnapshot = {
 interface LobbyTable {
   id: string;
   name: string;
+  gameId?: string;
   game: string;
   stakes: string;
   buyIn: string;
@@ -56,6 +62,7 @@ interface LobbyTable {
   originClubId?: string;
   seatedCount?: number;
   localOnly?: boolean;
+  tableSize?: number;
 }
 
 interface HomeClubCard {
@@ -71,6 +78,11 @@ interface HomeClubCard {
   creatorId?: string;
   notice?: string;
 }
+
+const emptyGameCatalog: GameCatalogResponse = {
+  active_game_id: '',
+  games: []
+};
 
 @Component({
   selector: 'app-root',
@@ -88,8 +100,10 @@ export class App implements OnInit, OnDestroy {
   unionCreateOpen = signal(false);
   lobbyQuickMenuOpen = signal(false);
   tableCreationStep = signal<'games' | 'settings' | 'template' | null>(null);
-  selectedClubGame = signal<string>(tableCreationDefaults.default_table.game);
-  selectedClubTableMode = signal<'Regular' | 'SNG' | 'MTT'>(tableCreationDefaults.default_table.mode as 'Regular' | 'SNG' | 'MTT');
+  selectedClubGame = signal<string>('');
+  gameCatalog = signal<GameCatalogResponse>(emptyGameCatalog);
+  gameCatalogLoaded = signal(false);
+  selectedClubTableMode = signal<'Regular'>('Regular');
   tableDraftName = signal('');
   tableRulesOpen = signal(true);
   clubTableRules = signal<Record<string, boolean>>({
@@ -101,18 +115,16 @@ export class App implements OnInit, OnDestroy {
     squid: false,
     winStreak: false
   });
-  readonly clubGameOptions = [
-    { id: 'NLH', title: 'NLH', subtitle: 'NO LIMIT HOLD’EM', color: '#2488cd' },
-    { id: '6+', title: '6+', subtitle: '6+ HOLD’EM', color: '#cd4562' },
-    { id: 'PLO', title: 'PLO', subtitle: 'POT LIMIT OMAHA', color: '#159482' },
-    { id: 'FLASH', title: 'FLASH', subtitle: 'FAST-FOLD POKER', color: '#c34552' },
-    { id: 'MIXED', title: 'MIXED', subtitle: 'ROTATING GAMES', color: '#7356c7' },
-    { id: 'TONGITS', title: 'TONGITS', subtitle: 'PHILIPPINES POKER', color: '#1c79bb' },
-    { id: 'OFX', title: 'OFX', subtitle: 'MULTIPLE REGIONS', color: '#b3438b' },
-    { id: 'MATA', title: 'MATA', subtitle: 'MEXICAN POKER', color: '#1a9a77' },
-    { id: 'BADUGI', title: 'BADUGI', subtitle: 'KOREAN POKER', color: '#6748b6' }
-  ];
-  readonly clubTableModes = ['Regular', 'SNG', 'MTT'] as const;
+  get clubGameOptions(): Array<{ id: string; title: string; subtitle: string; color: string }> {
+    return this.gameCatalog().games
+      .filter((game) => game.create_supported)
+      .map((game) => ({ id: game.game_id, title: game.display_name, subtitle: 'AVAILABLE', color: '#2488cd' }));
+  }
+  get lobbyGameFilters(): string[] {
+    return ['ALL', ...this.gameCatalog().games.map((game) => game.display_name)];
+  }
+  readonly tableSizes = [2, 3, 4, 5, 6, 7, 8, 9];
+  readonly clubTableModes = ['Regular'] as const;
   readonly clubTableRuleOptions = [
     { id: 'allInOrFold', label: 'All-in or Fold' },
     { id: 'doubleBoard', label: 'Double Board' },
@@ -255,7 +267,7 @@ export class App implements OnInit, OnDestroy {
   private readonly firebaseAuth = inject(FirebaseAuthService);
   apiBase = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__?.apiBase ?? 'http://127.0.0.1:8000';
   clubId = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__?.clubId ?? 'demo';
-  tableId = 'table-1';
+  tableId = '';
   smallBlind = tableCreationDefaults.default_table.create_request_defaults.small_blind;
   bigBlind = tableCreationDefaults.default_table.create_request_defaults.big_blind;
   buyInMin = tableCreationDefaults.default_table.create_request_defaults.buy_in_min;
@@ -264,12 +276,11 @@ export class App implements OnInit, OnDestroy {
   seatIndex = 0;
   buyInAmount = 500;
   unionTableName = 'Union Main';
-  unionTableId = 'union-table-1';
+  unionTableId = '';
   raiseTo = 300;
   health = signal<'checking' | 'online' | 'offline'>('checking');
   socketStatus = signal<'disconnected' | 'connecting' | 'connected'>('disconnected');
   snapshot = signal<TableSnapshot | null>(null);
-  disconnectTimer = signal<number>(15);
   busy = signal('');
   notice = signal('');
   loginIdentifier = signal('');
@@ -281,21 +292,27 @@ export class App implements OnInit, OnDestroy {
   signingIn = signal(false);
   controlsOpen = signal(false);
   preAction = signal<'check-fold' | 'fold' | 'call-any' | null>(null);
+  preActionPending = signal(false);
   private socket: WebSocket | null = null;
+  private socketGeneration = 0;
+  private reconnectTimer: number | null = null;
+  private reconnectAttempt = 0;
+  private reconnectBlocked = false;
+  private authFailureRetryUsed = false;
+  private pendingPreActionCorrelationId: string | null = null;
+  private readonly pendingActionCorrelationIds = new Set<string>();
   private pendingBuyInId: string | null = null;
   private unsubscribeAuthState: (() => void) | null = null;
 
   constructor(private readonly http: HttpClient, session: UserSessionStore) {
     this.session = session;
     this.homeClubCards = [...this.homeClubCards, ...this.readLocalClubs()];
-
-    effect(() => {
-      this.resolveQueuedPreAction();
-    });
   }
 
   ngOnInit(): void {
     this.checkHealth();
+    this.loadGameCatalog();
+    this.authFailureRetryUsed = false;
     if (!this.firebaseAuth.isConfigured()) return;
 
     this.unsubscribeAuthState = this.firebaseAuth.onAuthStateChanged(async (user) => {
@@ -356,6 +373,18 @@ export class App implements OnInit, OnDestroy {
     return this.isActiveMockClubPreview ? 'PREVIEW' : this.session.role();
   }
 
+  get selectedGameDisplayName(): string {
+    return this.gameCatalog().games.find((game) => game.game_id === this.selectedClubGame())?.display_name
+      ?? this.selectedClubGame();
+  }
+
+  get snapshotGameDisplayName(): string {
+    const gameId = this.snapshot()?.game_id;
+    return this.gameCatalog().games.find((game) => game.game_id === gameId)?.display_name
+      ?? gameId
+      ?? 'Unknown game';
+  }
+
   get isActiveClubOwner(): boolean {
     return this.activeClubRole === 'OWNER';
   }
@@ -406,8 +435,20 @@ export class App implements OnInit, OnDestroy {
   togglePreAction(action: 'check-fold' | 'fold' | 'call-any'): void {
     if (this.isMyTurn) return;
     const nextValue = this.preAction() === action ? null : action;
-    this.preAction.set(nextValue);
-    this.resolveQueuedPreAction();
+    const wireAction = nextValue === 'check-fold'
+      ? 'CHECK_FOLD'
+      : nextValue === 'fold'
+        ? 'FOLD'
+        : nextValue === 'call-any' ? 'CALL_ANY' : null;
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      this.notice.set('Connect to the table before setting a pre-action.');
+      return;
+    }
+    const correlationId = crypto.randomUUID();
+    if (this.sendSocketEnvelope('PRE_ACTION', { action: wireAction }, correlationId)) {
+      this.pendingPreActionCorrelationId = correlationId;
+      this.preActionPending.set(true);
+    }
   }
 
   toggleControls(): void {
@@ -652,6 +693,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   goHome(): void {
+    this.closeSocket();
     this.screen.set('home');
   }
 
@@ -692,6 +734,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   enterLobby(game = 'ALL'): void {
+    this.closeSocket();
     this.lobbyGame.set(game);
     this.screen.set('lobby');
     if (this.isActiveLocalClubOwner) {
@@ -710,16 +753,14 @@ export class App implements OnInit, OnDestroy {
   }
 
   openPrivateTable(): void {
-    if (this.isActiveMockClubPreview) {
-      this.notice.set('Private tables are not connected in this club preview.');
-      return;
-    }
-    this.openTable('table-1');
+    this.notice.set('Private tables are not connected, and invitations are not available in this backend.');
   }
 
   openTable(tableId: string, unionId: string | null = null): void {
-    this.tableId = tableId;
+    const selectedTable = this.visibleLobbyTables.find((table) => table.id === tableId);
+    this.tableId = tableId.trim();
     this.tableUnionId.set(unionId);
+    if (selectedTable?.tableSize) this.tableSize.set(selectedTable.tableSize);
     this.screen.set('table');
     this.connectTable();
   }
@@ -772,12 +813,19 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.tableCreationStep.set('games');
-    this.notice.set(this.canCreateClubTables()
+    this.notice.set(!this.gameCatalogLoaded()
+      ? 'Game catalog is unavailable. Table creation is disabled until it loads.'
+      : this.canCreateClubTables()
       ? ''
       : 'Preview only. A verified club Owner or Manager is required to create this table.');
   }
 
   chooseClubGame(gameId: string): void {
+    const game = this.gameCatalog().games.find((entry) => entry.game_id === gameId);
+    if (!game?.create_supported) {
+      this.notice.set('This game is not enabled for table creation by the backend.');
+      return;
+    }
     this.selectedClubGame.set(gameId);
     this.tableCreationStep.set('settings');
   }
@@ -795,7 +843,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   openTableTemplate(): void {
-    this.selectedClubGame.set('NLH');
+    this.selectedClubGame.set(this.gameCatalog().active_game_id);
     this.selectedClubTableMode.set('Regular');
     this.tableCreationStep.set('template');
     this.notice.set('');
@@ -814,16 +862,15 @@ export class App implements OnInit, OnDestroy {
       this.notice.set('A verified club Owner or Manager is required to create this table.');
       return;
     }
-    if (this.selectedClubGame() !== tableCreationDefaults.default_table.game
-      || this.selectedClubTableMode() !== tableCreationDefaults.default_table.mode) {
-      this.notice.set('The current backend supports Regular NLH tables only.');
-      return;
-    }
 
     const tableName = this.tableDraftName().trim();
     const tableId = tableName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     if (!tableId) {
       this.notice.set('Enter a table name before creating it.');
+      return;
+    }
+    if (!this.isSelectedGameCreateSupported()) {
+      this.notice.set('This game is not enabled for table creation by the backend.');
       return;
     }
 
@@ -834,27 +881,17 @@ export class App implements OnInit, OnDestroy {
     this.buyInMax = Number(ranges['buyInMax'] ?? tableCreationDefaults.default_table.create_request_defaults.buy_in_max);
     this.tableSize.set(Number(ranges['tableSize'] ?? tableCreationDefaults.default_table.create_request_defaults.table_size));
 
-    const successMessage = `Table created with ${this.smallBlind}/${this.bigBlind} micro blinds. Advanced template settings are not applied by the current backend.`;
     if (this.isActiveLocalClubOwner) {
-      const table: LobbyTable = {
-        id: tableId,
-        name: tableName,
-        game: this.selectedClubGame(),
-        stakes: `${this.smallBlind} / ${this.bigBlind}`,
-        buyIn: `${this.buyInMin} - ${this.buyInMax}`,
-        players: `0 / ${this.tableSize()}`,
-        status: 'OPEN',
-        seatedCount: 0,
-        localOnly: true
-      };
-      const tables = this.localClubTables.get(this.activeClubDisplayId) ?? [];
-      this.localClubTables.set(this.activeClubDisplayId, [...tables, table]);
-      this.lobbyTables = [...tables, table];
-      this.tableCreationStep.set(null);
-      this.notice.set(`Local table created with ${this.smallBlind}/${this.bigBlind} micro blinds. Advanced template settings and server gameplay are not connected.`);
+      this.addLocalClubTable(tableId, tableName);
       return;
     }
 
+    if (!this.isSelectedGameCreateSupported() || this.selectedClubTableMode() !== 'Regular') {
+      this.notice.set('The selected game or mode is not enabled for table creation by the backend.');
+      return;
+    }
+
+    const successMessage = `Table created with ${this.smallBlind}/${this.bigBlind} micro blinds. Advanced template settings are not applied by the current backend.`;
     this.tableId = tableId;
     this.createTable(successMessage);
   }
@@ -868,13 +905,6 @@ export class App implements OnInit, OnDestroy {
       this.createTableFromTemplate();
       return;
     }
-    if (this.selectedClubGame() !== 'NLH'
-      || this.selectedClubTableMode() !== 'Regular'
-      || Object.values(this.clubTableRules()).some(Boolean)) {
-      this.notice.set('The current backend supports Regular NLH tables only. Other games and rules are not connected yet.');
-      return;
-    }
-
     const tableId = this.tableDraftName().trim().toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
@@ -882,25 +912,20 @@ export class App implements OnInit, OnDestroy {
       this.notice.set('Enter a table name before creating it.');
       return;
     }
+    if (!this.isSelectedGameCreateSupported()) {
+      this.notice.set('This game is not enabled for table creation by the backend.');
+      return;
+    }
 
     if (this.isActiveLocalClubOwner) {
-      const clubId = this.activeClubDisplayId;
-      const table: LobbyTable = {
-        id: tableId,
-        name: this.tableDraftName().trim(),
-        game: this.selectedClubGame(),
-        stakes: `${this.smallBlind} / ${this.bigBlind}`,
-        buyIn: `${this.buyInMin} - ${this.buyInMax}`,
-        players: `0 / ${this.tableSize()}`,
-        status: 'OPEN',
-        seatedCount: 0,
-        localOnly: true
-      };
-      const tables = this.localClubTables.get(clubId) ?? [];
-      this.localClubTables.set(clubId, [...tables, table]);
-      this.lobbyTables = [...tables, table];
-      this.tableCreationStep.set(null);
-      this.notice.set('Table added to this local club room. Server gameplay is not connected.');
+      this.addLocalClubTable(tableId, this.tableDraftName().trim());
+      return;
+    }
+
+    if (!this.isSelectedGameCreateSupported()
+      || this.selectedClubTableMode() !== 'Regular'
+      || Object.values(this.clubTableRules()).some(Boolean)) {
+      this.notice.set('The selected game or mode is not enabled for table creation by the backend.');
       return;
     }
 
@@ -908,10 +933,35 @@ export class App implements OnInit, OnDestroy {
     this.createTable();
   }
 
+  private addLocalClubTable(tableId: string, tableName: string): void {
+    const table: LobbyTable = {
+      id: tableId,
+      name: tableName,
+      gameId: this.selectedClubGame(),
+      game: this.selectedGameDisplayName,
+      stakes: `${this.smallBlind} / ${this.bigBlind}`,
+      buyIn: `${this.buyInMin} - ${this.buyInMax}`,
+      players: `0 / ${this.tableSize()}`,
+      status: 'OPEN',
+      seatedCount: 0,
+      localOnly: true
+    };
+    const tables = this.localClubTables.get(this.activeClubDisplayId) ?? [];
+    this.localClubTables.set(this.activeClubDisplayId, [...tables, table]);
+    this.lobbyTables = [...tables, table];
+    this.tableCreationStep.set(null);
+    this.notice.set(`Local ${this.selectedGameDisplayName} table created with ${this.smallBlind}/${this.bigBlind} blinds. Server gameplay is not connected.`);
+  }
+
   get visibleLobbyTables(): LobbyTable[] {
     const tables = this.lobbyScope() === 'union' ? this.unionTables() : this.lobbyTables;
-    if (this.lobbyGame() === 'ALL' || this.lobbyGame() === 'MTT') return tables;
-    return tables.filter((table) => table.game.toUpperCase() === this.lobbyGame().toUpperCase());
+    if (this.lobbyGame() === 'ALL') return tables;
+    const selectedGame = this.gameCatalog().games.find((game) =>
+      game.display_name === this.lobbyGame() || game.game_id === this.lobbyGame()
+    );
+    return tables.filter((table) => selectedGame
+      ? table.gameId === selectedGame.game_id || (!table.gameId && table.game.toUpperCase() === selectedGame.display_name.toUpperCase())
+      : table.game.toUpperCase() === this.lobbyGame().toUpperCase());
   }
 
   openReplay(): void {
@@ -980,6 +1030,33 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  private loadGameCatalog(): void {
+    this.clubApi.getGames(this.baseUrl()).subscribe({
+      next: (catalog) => {
+        if (!Array.isArray(catalog.games) || typeof catalog.active_game_id !== 'string') return;
+        const supported = catalog.games.filter((game) => game.create_supported);
+        const activeGame = supported.find((game) => game.game_id === catalog.active_game_id) ?? supported[0];
+        this.gameCatalog.set(catalog);
+        this.gameCatalogLoaded.set(true);
+        if (activeGame) this.selectedClubGame.set(activeGame.game_id);
+        if (this.lobbyGame() !== 'ALL'
+          && !catalog.games.some((game) => game.display_name === this.lobbyGame())) {
+          this.lobbyGame.set('ALL');
+        }
+      },
+      error: () => {
+        this.gameCatalog.set(emptyGameCatalog);
+        this.gameCatalogLoaded.set(true);
+      }
+    });
+  }
+
+  private isSelectedGameCreateSupported(): boolean {
+    return this.gameCatalog().games.some((game) =>
+      game.game_id === this.selectedClubGame() && game.create_supported
+    );
+  }
+
   private loadLobbyData(): void {
     const idToken = this.session.firebaseIdToken();
     if (!idToken
@@ -1041,25 +1118,34 @@ export class App implements OnInit, OnDestroy {
   }
 
   private toLobbyTable(table: ClubTableSummary): LobbyTable {
+    const catalogGame = this.gameCatalog().games.find((game) => game.game_id === table.game_id);
     return {
       id: table.table_id,
       name: table.table_name,
-      game: table.game?.toUpperCase() || 'NLH',
+      gameId: table.game_id,
+      game: catalogGame?.display_name ?? table.game?.toUpperCase() ?? table.game_id ?? 'Unknown game',
       stakes: `${table.small_blind} / ${table.big_blind}`,
       buyIn: `${table.buy_in_min} - ${table.buy_in_max}`,
-      players: `${table.seated_count} / ${table.max_seats}`,
+      players: `${table.seated_count} / ${table.table_size ?? table.max_seats ?? 9}`,
       status: table.is_hand_running ? 'RUNNING' : 'OPEN',
       unionId: table.union_id ?? undefined,
       originClubId: table.origin_club_id ?? undefined,
-      seatedCount: table.seated_count
+      seatedCount: table.seated_count,
+      tableSize: table.table_size ?? table.max_seats ?? 9
     };
   }
 
   createTable(successMessage = 'Table created.'): void {
     if (!this.session.canManageTables()) return;
+    const game = this.gameCatalog().games.find((entry) => entry.game_id === this.selectedClubGame());
+    if (!game?.create_supported) {
+      this.notice.set('The selected game is not supported for table creation.');
+      return;
+    }
     const idToken = this.requireFirebaseToken('creating a table');
     if (!idToken) return;
     const request: ClubTableCreateRequest = {
+      game_id: game.game_id,
       small_blind: Number(this.smallBlind),
       big_blind: Number(this.bigBlind),
       buy_in_min: Number(this.buyInMin),
@@ -1074,11 +1160,16 @@ export class App implements OnInit, OnDestroy {
   createUnionTable(): void {
     const unionId = this.selectedUnionId();
     if (!this.session.canManageUnion(unionId) || !unionId) return;
+    if (!this.isSelectedGameCreateSupported()) {
+      this.notice.set('The selected game is not supported for table creation.');
+      return;
+    }
     const idToken = this.requireFirebaseToken('creating a union table');
     if (!idToken) return;
     this.busy.set('union-create');
     this.clubApi.createUnionTable(this.baseUrl(), unionId, this.unionTableId, idToken, {
       origin_club_id: this.clubId,
+      game_id: this.selectedClubGame(),
       table_name: this.unionTableName,
       small_blind: Number(this.smallBlind),
       big_blind: Number(this.bigBlind),
@@ -1126,12 +1217,6 @@ export class App implements OnInit, OnDestroy {
       return;
     }
 
-    const availableStack = this.currentPlayer?.stack ?? 0;
-    if (availableStack < requestedBuyIn) {
-      this.notice.set(`You need at least ${requestedBuyIn} chips in your stack to sit here.`);
-      return;
-    }
-
     const idToken = this.requireFirebaseToken('joining a table');
     if (!idToken) return;
     this.pendingBuyInId ??= crypto.randomUUID();
@@ -1175,82 +1260,79 @@ export class App implements OnInit, OnDestroy {
   }
 
   connectTable(): void {
-    const idToken = this.requireFirebaseToken('joining a live table');
-    if (!idToken) return;
+    if (!this.tableId.trim()) {
+      this.notice.set('Select a table from the lobby before connecting.');
+      return;
+    }
+    if (!this.firebaseAuth.isConfigured()) {
+      this.socketStatus.set('disconnected');
+      this.notice.set('Firebase must be configured before connecting to the table.');
+      return;
+    }
+    this.reconnectAttempt = 0;
+    this.reconnectBlocked = false;
+    this.authFailureRetryUsed = false;
+    this.openTableSocket();
+  }
+
+  private openTableSocket(): void {
     this.closeSocket();
+    const generation = this.socketGeneration;
     this.socketStatus.set('connecting');
+    this.snapshot.set(null);
     this.notice.set('');
-    this.updatePlayerState(this.userId, { is_connected: true, is_sat_out: false, disconnect_seconds_left: 15 });
-    const base = this.baseUrl().replace(/^http/, 'ws');
-    const path = this.tableUnionId()
-      ? `/ws/union/${encodeURIComponent(this.tableUnionId()!)}/${encodeURIComponent(this.tableId)}`
-      : `/ws/table/${encodeURIComponent(this.clubId)}/${encodeURIComponent(this.tableId)}`;
-    const socket = new WebSocket(`${base}${path}`);
-    this.socket = socket;
-    socket.onopen = () => {
-      const authentication: { type: string; id_token: string; club_id?: string } = {
-        type: 'authenticate',
-        id_token: idToken
-      };
-      if (this.tableUnionId()) authentication.club_id = this.clubId;
-      socket.send(JSON.stringify(authentication));
-      this.updatePlayerState(this.userId, { is_connected: true, is_sat_out: false, disconnect_seconds_left: 15 });
-    };
-    socket.onmessage = (event: MessageEvent<string>) => {
-      try {
-        const message = JSON.parse(event.data) as TableSnapshot | { error: string } | { type: string };
-        if ('type' in message && message.type === 'authenticated') {
-          this.socketStatus.set('connected');
-          return;
-        }
-        if ('type' in message) return;
-        if ('error' in message) {
-          this.notice.set(message.error);
-          return;
-        }
-        this.snapshot.set(message);
-        this.resolveQueuedPreAction();
-      } catch {
-        this.notice.set('Received an unreadable update from the table.');
+    void this.firebaseAuth.getCurrentIdToken(true).then((idToken) => {
+      if (generation !== this.socketGeneration) return;
+      if (!idToken) {
+        this.socketStatus.set('disconnected');
+        this.notice.set('A current Firebase ID token is required to connect to the table.');
+        return;
       }
-    };
-    socket.onerror = () => {
-      this.notice.set('The table connection encountered an error.');
+      this.session.firebaseIdToken.set(idToken);
+      const base = this.baseUrl().replace(/^http/, 'ws');
+      const path = this.tableUnionId()
+        ? `/ws/union/${encodeURIComponent(this.tableUnionId()!)}/${encodeURIComponent(this.tableId.trim())}`
+        : `/ws/table/${encodeURIComponent(this.clubId.trim())}/${encodeURIComponent(this.tableId.trim())}`;
+      const socket = new WebSocket(`${base}${path}`);
+      this.socket = socket;
+      socket.onopen = () => {
+        if (generation !== this.socketGeneration) return;
+        const payload: { id_token: string; club_id?: string } = { id_token: idToken };
+        if (this.tableUnionId()) payload.club_id = this.clubId;
+        socket.send(JSON.stringify(this.createSocketEnvelope('AUTHENTICATE', payload, `auth-${crypto.randomUUID()}`)));
+      };
+      socket.onmessage = (event: MessageEvent<string>) => {
+        if (generation === this.socketGeneration) this.handleSocketMessage(event.data);
+      };
+      socket.onerror = () => {
+        if (generation !== this.socketGeneration) return;
+        this.notice.set('The table connection encountered an error. Reconnecting…');
+        this.socketStatus.set('disconnected');
+        this.scheduleReconnect();
+      };
+      socket.onclose = () => {
+        if (generation !== this.socketGeneration) return;
+        this.socket = null;
+        this.handlePlayerDisconnected();
+      };
+    }).catch(() => {
+      if (generation !== this.socketGeneration) return;
       this.socketStatus.set('disconnected');
-      this.handlePlayerDisconnected();
-    };
-    socket.onclose = () => {
-      this.socketStatus.set('disconnected');
-      this.handlePlayerDisconnected();
-      this.socket = null;
-    };
+      this.notice.set('Unable to refresh the Firebase ID token for this connection.');
+    });
   }
 
   handlePlayerDisconnected(): void {
-    this.updatePlayerState(this.userId, { is_connected: false, disconnect_seconds_left: this.disconnectTimer() });
-    this.startDisconnectProtection();
-  }
-
-  autoResolveDisconnect(): void {
-    const snapshot = this.snapshot();
-    if (!snapshot) return;
-
-    const current = this.currentPlayer;
-    if (!current) return;
-
-    const resolvedAction = this.currentBet === 0 ? 'CHECK' : 'FOLD';
-    this.sendAction(resolvedAction);
-    this.updatePlayerState(this.userId, { is_connected: false, is_sat_out: true, disconnect_seconds_left: 0 });
-    this.notice.set('You were disconnected and automatically checked/folded. Press "I\'m Back" to sit back in.');
+    this.socketStatus.set('disconnected');
+    this.preActionPending.set(false);
+    this.pendingPreActionCorrelationId = null;
+    this.pendingActionCorrelationIds.clear();
+    this.scheduleReconnect();
   }
 
   onImBack(): void {
-    this.updatePlayerState(this.userId, { is_connected: true, is_sat_out: false, disconnect_seconds_left: 15 });
-    this.disconnectTimer.set(15);
-    this.notice.set('You are back in. You will be seated for the next hand.');
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({ action: 'SIT_IN' }));
-    }
+    this.notice.set('Reconnecting to the table. The server will provide your current seat state.');
+    this.connectTable();
   }
 
   sendAction(action: 'FOLD' | 'CHECK' | 'CALL' | 'RAISE'): void {
@@ -1259,27 +1341,146 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.notice.set('');
-    const payload = action === 'RAISE'
-      ? { action, amount: Number(this.raiseTo) }
-      : { action };
-    this.socket.send(JSON.stringify(payload));
+    const payload: TableActionPayload = {
+      action,
+      action_id: crypto.randomUUID(),
+      ...(action === 'RAISE' ? { amount: Number(this.raiseTo) } : {})
+    };
+    const correlationId = crypto.randomUUID();
+    if (this.sendSocketEnvelope('PLAYER_ACTION', payload, correlationId)) {
+      this.pendingActionCorrelationIds.add(correlationId);
+    }
+  }
+
+  private createSocketEnvelope<TPayload>(
+    event: string,
+    payload: TPayload,
+    correlationId: string = crypto.randomUUID()
+  ): TableWebSocketEnvelope<TPayload> {
+    const topic = this.tableUnionId()
+      ? `unions/${encodeURIComponent(this.tableUnionId()!)}/tables/${encodeURIComponent(this.tableId.trim())}/game`
+      : `clubs/${encodeURIComponent(this.clubId.trim())}/tables/${encodeURIComponent(this.tableId.trim())}/game`;
+    return { version: '1.0', topic, event, correlation_id: correlationId, payload };
+  }
+
+  private sendSocketEnvelope<TPayload>(event: string, payload: TPayload, correlationId?: string): boolean {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
+    this.socket.send(JSON.stringify(this.createSocketEnvelope(event, payload, correlationId)));
+    return true;
+  }
+
+  private handleSocketMessage(data: string): void {
+    try {
+      const message = JSON.parse(data) as Record<string, unknown>;
+      const event = message['event'];
+      const payload = typeof message['payload'] === 'object' && message['payload'] !== null
+        ? message['payload'] as Record<string, unknown>
+        : message;
+      if (event === 'PING') {
+        const correlationId = typeof message['correlation_id'] === 'string' ? message['correlation_id'] : '';
+        if (correlationId) this.sendSocketEnvelope('PONG', {}, correlationId);
+        return;
+      }
+      if (event === 'AUTHENTICATED') {
+        this.socketStatus.set('connected');
+        this.reconnectAttempt = 0;
+        this.authFailureRetryUsed = false;
+        this.reconnectBlocked = false;
+        this.notice.set('');
+        return;
+      }
+      if (event === 'PRE_ACTION_SET') {
+        if (message['correlation_id'] !== this.pendingPreActionCorrelationId) return;
+        this.pendingPreActionCorrelationId = null;
+        this.preActionPending.set(false);
+        return;
+      }
+      if (event === 'TABLE_SNAPSHOT') {
+        this.applySnapshot(payload as unknown as TableSnapshot);
+        return;
+      }
+      if (event === 'ACTION_ACKNOWLEDGED') {
+        if (typeof message['correlation_id'] === 'string') {
+          this.pendingActionCorrelationIds.delete(message['correlation_id']);
+        }
+        return;
+      }
+      if (event === 'ACTION_ERROR' || typeof message['code'] === 'number' || typeof payload['code'] === 'number') {
+        const correlationId = message['correlation_id'];
+        if (correlationId === this.pendingPreActionCorrelationId) {
+          this.pendingPreActionCorrelationId = null;
+        }
+        if (event === 'ACTION_ERROR' && typeof correlationId === 'string') {
+          if (!this.pendingActionCorrelationIds.has(correlationId)) return;
+          this.pendingActionCorrelationIds.delete(correlationId);
+        }
+        this.preActionPending.set(false);
+        this.showSocketError(payload as TableSocketErrorPayload);
+        return;
+      }
+      if (typeof payload['table_id'] === 'string') this.applySnapshot(payload as unknown as TableSnapshot);
+    } catch {
+      this.notice.set('Received an unreadable update from the table.');
+    }
+  }
+
+  private showSocketError(error: TableSocketErrorPayload): void {
+    const code = Number(error.code);
+    if (code === 40101 && !this.authFailureRetryUsed) {
+      this.authFailureRetryUsed = true;
+      this.reconnectBlocked = false;
+      this.socket?.close();
+    } else {
+      this.reconnectBlocked = true;
+    }
+    if (code === 40301) this.refreshMembershipAfterDenied();
+    this.notice.set(this.backendErrorMessage(code, error.trace_id));
+  }
+
+  private applySnapshot(snapshot: TableSnapshot): void {
+    if (snapshot.table_id !== this.tableId || !Array.isArray(snapshot.players)) return;
+    const reportedSize = snapshot.table_size ?? snapshot.max_seats;
+    if (reportedSize !== undefined) {
+      const tableSize = Number(reportedSize);
+      if (Number.isInteger(tableSize) && tableSize >= 2 && tableSize <= 9) {
+        this.tableSize.set(tableSize);
+      } else {
+        this.notice.set('The server returned an unsupported table size.');
+      }
+    }
+    this.snapshot.set(snapshot);
+    const ownPlayer = snapshot.players.find((player) => player.user_id === this.userId);
+    if (!ownPlayer) {
+      this.preAction.set(null);
+      this.preActionPending.set(false);
+    } else if (ownPlayer.pre_action !== undefined) {
+      this.preAction.set(ownPlayer.pre_action === 'CHECK_FOLD' ? 'check-fold'
+        : ownPlayer.pre_action === 'FOLD' ? 'fold'
+          : ownPlayer.pre_action === 'CALL_ANY' ? 'call-any' : null);
+      this.preActionPending.set(false);
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.screen() !== 'table' || !this.isAuthenticated || this.reconnectBlocked || this.reconnectTimer !== null) return;
+    const delay = Math.min(30_000, 1_000 * 2 ** this.reconnectAttempt);
+    this.reconnectAttempt += 1;
+    this.notice.set('Table connection lost. Reconnecting…');
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.openTableSocket();
+    }, delay);
   }
 
   seatPosition(seat: number): { x: number; y: number } {
-    const totalSeats = Math.max(6, Number(this.tableSize()) || 9);
-    const basePositions = [
-      { x: 50, y: 91 }, { x: 76, y: 78 }, { x: 87, y: 50 },
-      { x: 76, y: 22 }, { x: 50, y: 9 }, { x: 24, y: 22 },
-      { x: 13, y: 50 }, { x: 24, y: 78 }
-    ];
-
-    if (totalSeats === 9) {
-      basePositions.push({ x: 50, y: 50 });
-    }
-
+    const totalSeats = Math.min(9, Math.max(2, Number(this.tableSize()) || 9));
     const mySeat = this.currentPlayer?.seat ?? 0;
     const relativeSeat = ((seat - mySeat) % totalSeats + totalSeats) % totalSeats;
-    return basePositions[relativeSeat] ?? basePositions[0];
+    const angle = relativeSeat * (2 * Math.PI / totalSeats);
+    return {
+      x: 50 + 37 * Math.sin(angle),
+      y: 50 + 40 * Math.cos(angle)
+    };
   }
 
   streetName(street: number | null): string {
@@ -1302,10 +1503,51 @@ export class App implements OnInit, OnDestroy {
 
   errorMessage(error: unknown): string {
     if (error instanceof HttpErrorResponse) {
-      const detail = error.error?.detail;
-      return typeof detail === 'string' ? detail : error.message;
+      const body = typeof error.error === 'object' && error.error !== null
+        ? error.error as Record<string, unknown>
+        : {};
+      const code = Number(body['code']);
+      if (Number.isInteger(code) && code > 0) {
+        if (code === 40301) this.refreshMembershipAfterDenied();
+        return this.backendErrorMessage(code, typeof body['trace_id'] === 'string' ? body['trace_id'] : undefined);
+      }
+      const messages: Record<number, string> = {
+        401: 'Your session has expired. Sign in again to continue.',
+        403: 'You do not have permission to complete this request.',
+        404: 'The requested table or resource was not found.',
+        409: 'The request conflicts with the current server state.',
+        422: 'Some submitted values are not accepted by the server.',
+        429: 'Too many requests. Wait before trying again.',
+        503: 'The service is temporarily unavailable. Try again shortly.'
+      };
+      return messages[error.status] ?? 'The request could not be completed. Try again later.';
     }
     return 'The request could not be completed.';
+  }
+
+  private backendErrorMessage(code: number, traceId?: string): string {
+    const messages: Record<number, string> = {
+      40001: 'Check the submitted values and try again.',
+      40002: 'A required value is missing.',
+      40101: 'Your Firebase session expired. Re-authenticate to continue.',
+      40301: 'You do not have permission to complete this request.',
+      40401: 'The table or requested item is unavailable.',
+      40901: 'The server state changed. Refresh the table or balance before trying again.',
+      40902: 'This action conflicts with a previous action ID. Do not retry it with changed details.',
+      42901: 'Too many requests. Wait before trying again.',
+      50001: 'A temporary server error occurred. Try again later.',
+      50002: 'A temporary server error occurred. Try again later.'
+    };
+    const message = messages[code] ?? 'The request could not be completed.';
+    return traceId ? `${message} Reference: ${traceId}` : message;
+  }
+
+  private refreshMembershipAfterDenied(): void {
+    void this.firebaseAuth.getCurrentIdToken(true).then((idToken) => {
+      if (!idToken) return;
+      this.session.firebaseIdToken.set(idToken);
+      this.loadMemberSession();
+    }).catch(() => undefined);
   }
 
   private runRequest<T>(key: string, request: () => Observable<T>, successMessage?: string): void {
@@ -1313,7 +1555,7 @@ export class App implements OnInit, OnDestroy {
     this.notice.set('');
     request().subscribe({
       next: (response) => {
-        if (key !== 'create') this.snapshot.set(response as TableSnapshot);
+        if (key !== 'create' && key !== 'start') this.snapshot.set(response as TableSnapshot);
         if (key === 'seat') this.pendingBuyInId = null;
         this.notice.set(successMessage ?? (key === 'create' ? 'Table created.' : key === 'seat' ? 'Player seated.' : 'Hand started.'));
         this.busy.set('');
@@ -1331,15 +1573,6 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  private resolveQueuedPreAction(): void {
-    const queuedAction = this.preAction();
-    if (queuedAction !== 'check-fold' || !this.isMyTurn) return;
-
-    const currentBet = this.currentBet;
-    this.sendAction(currentBet === 0 ? 'CHECK' : 'FOLD');
-    this.preAction.set(null);
-  }
-
   private requireFirebaseToken(action: string): string | null {
     const idToken = this.session.firebaseIdToken();
     if (!idToken) {
@@ -1347,35 +1580,6 @@ export class App implements OnInit, OnDestroy {
       return null;
     }
     return idToken;
-  }
-
-  private updatePlayerState(userId: string, updates: Partial<PokerPlayer>): void {
-    const snapshot = this.snapshot();
-    if (!snapshot) return;
-
-    this.snapshot.set({
-      ...snapshot,
-      players: snapshot.players.map((player) =>
-        player.user_id === userId ? { ...player, ...updates } : player
-      )
-    });
-  }
-
-  private startDisconnectProtection(): void {
-    const current = this.currentPlayer;
-    if (!current) return;
-
-    this.disconnectTimer.set(15);
-    const timer = window.setInterval(() => {
-      const remaining = this.disconnectTimer() - 1;
-      this.disconnectTimer.set(Math.max(0, remaining));
-      this.updatePlayerState(this.userId, { disconnect_seconds_left: this.disconnectTimer() });
-
-      if (remaining <= 0) {
-        window.clearInterval(timer);
-        this.autoResolveDisconnect();
-      }
-    }, 1000);
   }
 
   baseUrl(): string {
@@ -1417,11 +1621,19 @@ export class App implements OnInit, OnDestroy {
   }
 
   private closeSocket(): void {
+    this.socketGeneration += 1;
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.socket) {
       this.socket.onclose = null;
       this.socket.close();
       this.socket = null;
     }
+    this.preActionPending.set(false);
+    this.pendingPreActionCorrelationId = null;
+    this.pendingActionCorrelationIds.clear();
     this.socketStatus.set('disconnected');
   }
 }

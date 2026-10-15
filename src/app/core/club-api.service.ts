@@ -12,6 +12,7 @@ export interface ClubMembershipResponse {
 export interface ClubTableSummary {
   table_id: string;
   table_name: string;
+  game_id?: string;
   game?: string;
   is_union_table: boolean;
   union_id: string | null;
@@ -20,17 +21,30 @@ export interface ClubTableSummary {
   big_blind: number;
   buy_in_min: number;
   buy_in_max: number;
-  max_seats: number;
+  table_size?: number;
+  max_seats?: number;
   seated_count: number;
   is_hand_running: boolean;
 }
 
 export interface ClubTableCreateRequest {
+  game_id: string;
   small_blind: number;
   big_blind: number;
   buy_in_min: number;
   buy_in_max: number;
   table_size: number;
+}
+
+export interface GameCatalogEntry {
+  game_id: string;
+  display_name: string;
+  create_supported: boolean;
+}
+
+export interface GameCatalogResponse {
+  active_game_id: string;
+  games: GameCatalogEntry[];
 }
 
 export interface ClubUnionSummary {
@@ -58,6 +72,11 @@ export interface PhonePasswordSignInResponse {
 @Injectable({ providedIn: 'root' })
 export class ClubApiService {
   private readonly http = inject(HttpClient);
+
+  getGames(apiBase: string): Observable<GameCatalogResponse> {
+    const url = `${apiBase.replace(/\/$/, '')}/games`;
+    return this.http.get<GameCatalogResponse>(url);
+  }
 
   signInWithPhonePassword(
     apiBase: string,
@@ -131,12 +150,13 @@ export class ClubApiService {
     idToken: string,
     request: {
       origin_club_id: string;
+      game_id: string;
       table_name: string;
       small_blind: number;
       big_blind: number;
       buy_in_min: number;
       buy_in_max: number;
-      table_size?: number;
+      table_size: number;
     }
   ): Observable<CreateUnionTableResponse> {
     const url = `${apiBase.replace(/\/$/, '')}/unions/${encodeURIComponent(unionId)}/tables/${encodeURIComponent(tableId)}`;

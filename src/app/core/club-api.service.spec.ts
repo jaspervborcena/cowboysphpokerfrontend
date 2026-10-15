@@ -17,6 +17,21 @@ describe('ClubApiService union requests', () => {
 
   afterEach(() => http.verify());
 
+  it('loads the game catalog with the backend active game and support flags', () => {
+    service.getGames('http://localhost:8000/').subscribe();
+
+    const request = http.expectOne('http://localhost:8000/games');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      active_game_id: 'no_limit_texas_holdem',
+      games: [{
+        game_id: 'no_limit_texas_holdem',
+        display_name: 'No-Limit Texas Hold’em',
+        create_supported: true
+      }]
+    });
+  });
+
   it('loads the authenticated member role from the configured club endpoint', () => {
     service.getMembership('http://localhost:8000/', 'club-a', 'firebase-token').subscribe();
 
@@ -73,6 +88,26 @@ describe('ClubApiService union requests', () => {
     expect(request.request.method).toBe('GET');
     expect(request.request.headers.get('Authorization')).toBe('Bearer firebase-token');
     request.flush([]);
+  });
+
+  it('creates union tables with the selected game_id and capacity', () => {
+    service.createUnionTable('http://localhost:8000', 'union-1', 'shared-1', 'firebase-token', {
+      origin_club_id: 'club-a',
+      game_id: 'no_limit_texas_holdem',
+      table_name: 'Shared Main',
+      small_blind: 1,
+      big_blind: 2,
+      buy_in_min: 50,
+      buy_in_max: 1000,
+      table_size: 9
+    }).subscribe();
+
+    const request = http.expectOne('http://localhost:8000/unions/union-1/tables/shared-1');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Authorization')).toBe('Bearer firebase-token');
+    expect(request.request.body.game_id).toBe('no_limit_texas_holdem');
+    expect(request.request.body.table_size).toBe(9);
+    request.flush({ union_id: 'union-1', table_id: 'shared-1', origin_club_id: 'club-a', status: 'created' });
   });
 
   it('seats a player through their home club without sending a user id', () => {

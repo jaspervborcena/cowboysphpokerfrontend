@@ -43,8 +43,8 @@
         <button class="home-play-tile lobby-tile" type="button" (click)="enterLobby()">
           <span class="tile-art playing-art"><i>A♠</i><i>A♥</i><b>♠</b></span><strong>LOBBY</strong><small>Cash games</small>
         </button>
-        <button class="home-play-tile tournament-tile" type="button" (click)="enterLobby('MTT')">
-          <span class="tile-art trophy-art">♜</span><strong>TOURNAMENT</strong><small>MTT schedule</small>
+        <button class="home-play-tile tournament-tile" type="button" disabled title="Tournament APIs are not available">
+          <span class="tile-art trophy-art">♜</span><strong>TOURNAMENT</strong><small>Not available</small>
         </button>
       </div>
 
@@ -73,7 +73,7 @@
       @if (session.canUseAgentDesk() || session.canManageTables() || session.canManageClub()) {
         <button type="button" (click)="notice.set('Shop is not available in this backend.')"><span>▣</span>SHOP</button>
         <button type="button" (click)="notice.set('Messages are not available in this backend.')"><span>✉</span>MESSAGE</button>
-        <button type="button" (click)="enterLobby('MTT')"><span>♜</span>MTT</button>
+        <button type="button" disabled title="Tournament APIs are not available"><span>♜</span>MTT</button>
         <button type="button" (click)="notice.set('Member career is not available in this backend.')"><span>♙</span>CAREER</button>
       }
       <button type="button" (click)="openRoleGuide()"><span>♧</span>ROLES</button>
@@ -115,7 +115,7 @@
         </div>
       }
       <div class="lobby-categories" role="tablist" aria-label="Game type">
-        @for (game of ['ALL', 'NLH', 'PLO', 'Badugi', 'Mata', 'Flash']; track game) {
+        @for (game of lobbyGameFilters; track game) {
           <button type="button" role="tab" [attr.aria-selected]="lobbyGame() === game" [class.selected]="lobbyGame() === game" (click)="selectLobbyGame(game)">{{ game }}</button>
         }
       </div>
@@ -198,6 +198,7 @@
         <section class="table-wizard game-picker" role="dialog" aria-modal="true" aria-labelledby="game-picker-title">
           <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set(null)" aria-label="Close game selection">‹‹</button><h2 id="game-picker-title">Choose a game</h2><span aria-hidden="true">HD</span></header>
           @if (!canCreateClubTables()) { <p class="table-wizard-notice">Preview only. Creating a table requires a verified club Owner or Manager.</p> }
+          @if (clubGameOptions.length === 0) { <p class="table-wizard-notice">{{ gameCatalogLoaded() ? 'No games are currently enabled for table creation.' : 'The game catalog is unavailable. Table creation is disabled.' }}</p> }
           <div class="game-picker-grid">
             @for (game of clubGameOptions; track game.id) {
               <button class="game-choice" type="button" [attr.data-game]="game.id" [style.--game-color]="game.color" (click)="chooseClubGame(game.id)">
@@ -205,35 +206,21 @@
               </button>
             }
           </div>
-          <button class="table-template-button" type="button" (click)="openTableTemplate()">♧ &nbsp; Table Template</button>
         </section>
       </div>
     }
     @if (tableCreationStep() === 'settings') {
       <div class="table-wizard-backdrop">
         <section class="table-wizard table-settings" role="dialog" aria-modal="true" aria-labelledby="table-settings-title">
-          <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set('games')" aria-label="Back to game selection">‹‹</button><h2 id="table-settings-title">{{ selectedClubGame() }}</h2><span aria-hidden="true">HD</span></header>
-          <div class="table-mode-tabs" role="tablist" aria-label="Table mode">
-            @for (mode of clubTableModes; track mode) {
-              <button type="button" role="tab" [attr.aria-selected]="selectedClubTableMode() === mode" [class.selected]="selectedClubTableMode() === mode" (click)="selectedClubTableMode.set($any(mode))">{{ mode }}</button>
-            }
-          </div>
+          <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set('games')" aria-label="Back to game selection">‹‹</button><h2 id="table-settings-title">{{ selectedGameDisplayName }}</h2><span aria-hidden="true">HD</span></header>
           <form class="table-settings-form" (ngSubmit)="createClubTableFromWizard()">
             <label class="table-name-field"><input name="tableDraftName" maxlength="48" required [value]="tableDraftName()" (input)="tableDraftName.set($any($event.target).value)" placeholder="Enter table name here"></label>
-            <button class="table-rules-heading" type="button" [attr.aria-expanded]="tableRulesOpen()" (click)="toggleTableRules()"><span>Game Mode</span><span aria-hidden="true">{{ tableRulesOpen() ? '⌃' : '⌄' }}</span></button>
-            @if (tableRulesOpen()) {
-              <div class="table-rules-list">
-                @for (rule of clubTableRuleOptions; track rule.id) {
-                  <label class="table-rule-row"><span>{{ rule.label }} <small aria-hidden="true">ⓘ</small></span><button type="button" role="switch" [attr.aria-checked]="clubTableRules()[rule.id]" [class.enabled]="clubTableRules()[rule.id]" (click)="toggleClubTableRule(rule.id)"><i></i>{{ clubTableRules()[rule.id] ? 'ON' : 'OFF' }}</button></label>
-                }
-              </div>
-            }
             <div class="table-settings-numbers">
               <label>Small blind<input type="number" name="smallBlind" min="1" required [(ngModel)]="smallBlind"></label>
               <label>Big blind<input type="number" name="bigBlind" min="1" required [(ngModel)]="bigBlind"></label>
               <label>Buy-in min<input type="number" name="buyInMin" min="1" required [(ngModel)]="buyInMin"></label>
               <label>Buy-in max<input type="number" name="buyInMax" min="1" required [(ngModel)]="buyInMax"></label>
-              <label>Seats<select name="tableSize" [ngModel]="tableSize()" (ngModelChange)="tableSize.set($event)"><option [ngValue]="6">6</option><option [ngValue]="8">8</option><option [ngValue]="9">9</option></select></label>
+              <label>Seats<select name="tableSize" [ngModel]="tableSize()" (ngModelChange)="tableSize.set($event)">@for (size of tableSizes; track size) { <option [ngValue]="size">{{ size }}</option> }</select></label>
             </div>
             <div class="table-wizard-actions"><button type="button" (click)="saveClubTableDraft()">Save</button><button type="submit" [disabled]="busy() !== ''">{{ busy() === 'create' ? 'Creating…' : 'Create' }}</button></div>
           </form>
@@ -310,7 +297,7 @@
     </a>
     <div class="table-identity">
       <span class="eyebrow">{{ tableUnionId() ? 'UNION TABLE' : 'PRIVATE TABLE' }}</span>
-      <strong>{{ tableUnionId() ?? clubId }} / {{ tableId }}</strong>
+      <strong>{{ tableUnionId() ?? clubId }} / {{ tableId || 'No table selected' }}</strong>
     </div>
     <div class="connection-strip" [attr.aria-label]="'API ' + health() + ', table ' + socketStatus()">
       <span class="status-indicator" [class.online]="health() === 'online'" [class.offline]="health() === 'offline'"></span>
@@ -342,7 +329,7 @@
         </div>
         <div class="split-fields">
           <label><span class="field-label">Club ID</span><input name="clubId" [(ngModel)]="clubId"></label>
-          <label><span class="field-label">Table ID</span><input name="tableId" [(ngModel)]="tableId"></label>
+          <label><span class="field-label">Table ID</span><input name="tableId" [(ngModel)]="tableId" placeholder="Select a table from the lobby"></label>
         </div>
       </section>
 
@@ -353,11 +340,7 @@
           <label><span class="field-label">Small blind</span><input type="number" min="1" name="smallBlind" [(ngModel)]="smallBlind" required></label>
           <label><span class="field-label">Big blind</span><input type="number" min="1" name="bigBlind" [(ngModel)]="bigBlind" required></label>
           <label><span class="field-label">Table size</span>
-            <select name="tableSize" [ngModel]="tableSize()" (ngModelChange)="tableSize.set($event)">
-              <option [ngValue]="6">6-handed</option>
-              <option [ngValue]="8">8-handed</option>
-              <option [ngValue]="9">9-handed</option>
-            </select>
+            <select name="tableSize" [ngModel]="tableSize()" (ngModelChange)="tableSize.set($event)">@for (size of tableSizes; track size) { <option [ngValue]="size">{{ size }}-handed</option> }</select>
           </label>
           <label><span class="field-label">Buy-in min</span><input type="number" min="1" name="buyInMin" [(ngModel)]="buyInMin" required></label>
           <label><span class="field-label">Buy-in max</span><input type="number" min="1" name="buyInMax" [(ngModel)]="buyInMax" required></label>
@@ -373,7 +356,7 @@
         <div class="split-fields">
           <label><span class="field-label">Member ID</span><input name="userId" [ngModel]="userId" readonly></label>
           <label><span class="field-label">Display name</span><input name="username" [ngModel]="username" readonly></label>
-          <label><span class="field-label">Seat number</span><input type="number" min="0" max="8" name="seatIndex" [(ngModel)]="seatIndex" required></label>
+          <label><span class="field-label">Seat number</span><input type="number" min="0" [max]="tableSize() - 1" name="seatIndex" [(ngModel)]="seatIndex" required></label>
           <label><span class="field-label">Buy-in request</span><input type="number" min="1" name="buyInAmount" [(ngModel)]="buyInAmount" required></label>
         </div>
         <div class="button-row">
@@ -398,7 +381,7 @@
     <section class="table-panel" aria-label="Live poker table">
       <div class="table-toolbar">
         <div>
-          <span class="eyebrow">NO-LIMIT TEXAS HOLD’EM</span>
+          <span class="eyebrow">{{ snapshotGameDisplayName }}</span>
           <h2>{{ snapshot()?.table_name ?? tableId }} <span class="table-live" [class.live]="snapshot()?.is_hand_running">{{ snapshot()?.is_hand_running ? 'LIVE HAND' : 'WAITING' }}</span></h2>
         </div>
         <div class="table-toolbar-actions">
@@ -441,7 +424,7 @@
                   </div>
                   @if (seat.player.seat === snapshot()?.active_turn_seat) { <span class="turn-marker">ACTING</span> }
                   @if (seat.player.is_connected === false && seat.player.in_hand) {
-                    <div class="reconnect-badge"><span class="spinner"></span> Reconnecting... {{ seat.player.disconnect_seconds_left ?? disconnectTimer() }}s</div>
+                    <div class="reconnect-badge"><span class="spinner"></span> Reconnecting... @if (seat.player.disconnect_seconds_left !== undefined) { {{ seat.player.disconnect_seconds_left }}s }</div>
                   }
                   @if (seat.player.is_sat_out) {
                     <div class="sat-out-overlay"><span>SITTING OUT</span></div>
@@ -472,10 +455,10 @@
       </div>
 
       <div class="action-bar">
-        @if (isCurrentPlayerSatOut) {
+        @if (isCurrentPlayerSatOut && socketStatus() !== 'connected') {
           <div class="sit-in-bar">
-            <p>You are currently sitting out.</p>
-            <button type="button" class="btn-im-back" (click)="onImBack()">I'm Back</button>
+            <p>You are currently sitting out and disconnected.</p>
+            <button type="button" class="btn-im-back" (click)="onImBack()" [disabled]="socketStatus() === 'connecting'">Reconnect</button>
           </div>
         }
 
@@ -485,14 +468,14 @@
         </div>
 
         @if (!isMyTurn) {
-          <div class="pre-action-options" aria-label="Pre-action options">
+          <div class="pre-action-options" aria-label="Pre-action options" [attr.aria-busy]="preActionPending()">
             <button type="button" class="pre-action-button" [class.selected]="preAction() === 'check-fold'" (click)="togglePreAction('check-fold')">
               <span class="pre-action-box" aria-hidden="true"></span>
-              <span>F/C</span>
+              <span>Check/Fold</span>
             </button>
             <button type="button" class="pre-action-button" [class.selected]="preAction() === 'fold'" (click)="togglePreAction('fold')">
               <span class="pre-action-box" aria-hidden="true"></span>
-              <span>Check</span>
+              <span>Fold</span>
             </button>
             <button type="button" class="pre-action-button" [class.selected]="preAction() === 'call-any'" (click)="togglePreAction('call-any')">
               <span class="pre-action-box" aria-hidden="true"></span>
@@ -503,9 +486,11 @@
 
         @if (isMyTurn) {
           <div class="action-controls">
-            <button class="fold-action" type="button" (click)="sendAction('FOLD')" [disabled]="socketStatus() !== 'connected'">F/C</button>
+            <button class="fold-action" type="button" (click)="sendAction('FOLD')" [disabled]="socketStatus() !== 'connected'">Fold</button>
             <button class="check-action" type="button" (click)="sendAction('CHECK')" [disabled]="socketStatus() !== 'connected'">Check</button>
-            <button class="call-action" type="button" (click)="sendAction('CALL')" [disabled]="socketStatus() !== 'connected'">Fold</button>
+            <button class="call-action" type="button" (click)="sendAction('CALL')" [disabled]="socketStatus() !== 'connected'">Call</button>
+            <label class="raise-to-field">Raise to<input type="number" name="raiseTo" min="1" [(ngModel)]="raiseTo"></label>
+            <button class="call-action" type="button" (click)="sendAction('RAISE')" [disabled]="socketStatus() !== 'connected'">Raise</button>
           </div>
         }
       </div>
