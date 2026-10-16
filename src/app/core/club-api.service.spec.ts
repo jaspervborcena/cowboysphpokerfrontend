@@ -41,6 +41,21 @@ describe('ClubApiService union requests', () => {
     request.flush({ club_id: 'club-a', user_id: 'member-1', username: 'Player', role: 'PLAYER' });
   });
 
+  it('loads the authenticated member wallet summary for club-chip availability', () => {
+    service.getMemberWalletSummary('http://localhost:8000/', 'club-a', 'firebase-token').subscribe();
+
+    const request = http.expectOne('http://localhost:8000/clubs/club-a/members/me/wallet');
+    expect(request.request.method).toBe('GET');
+    expect(request.request.headers.get('Authorization')).toBe('Bearer firebase-token');
+    request.flush({
+      club_id: 'club-a',
+      user_id: 'member-1',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 750,
+      in_play_balance: 1200
+    });
+  });
+
   it('requests a Firebase custom token for phone and password sign-in', () => {
     service.signInWithPhonePassword('http://localhost:8000/', '+639123456789', 'secret-pass').subscribe();
 

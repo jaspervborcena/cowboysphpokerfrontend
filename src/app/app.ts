@@ -11,6 +11,8 @@ import { AppRuntimeConfig } from './core/runtime-config';
 import { UserSessionStore } from './core/user-session.store';
 import { HandReplayContainerComponent } from './features/hand-replay/hand-replay-container.component';
 import { WalletDashboardComponent } from './features/wallet-dashboard/wallet-dashboard.component';
+import { BlindEntryChoice } from './features/table/rules/table-rules.types';
+import { TableRulesService } from './features/table/rules/table-rules.service';
 import tableCreationDefaults from './data/table-creation-defaults.json';
 
 type PokerPlayer = {
@@ -23,7 +25,11 @@ type PokerPlayer = {
   in_hand: boolean;
   is_connected?: boolean;
   is_sat_out?: boolean;
+  turn_seconds_left?: number;
   disconnect_seconds_left?: number;
+  disconnect_timeout_count?: number;
+  blind_decision_pending?: boolean;
+  blind_amount_to_post?: number;
   club_id?: string | null;
   pre_action?: 'CHECK_FOLD' | 'FOLD' | 'CALL_ANY' | null;
 };
@@ -32,6 +38,7 @@ type TableSnapshot = {
   table_id: string;
   table_name: string;
   game_id?: string;
+  table_format?: string;
   table_size?: number;
   max_seats?: number;
   is_union_table: boolean;
@@ -64,6 +71,8 @@ interface LobbyTable {
   seatedCount?: number;
   localOnly?: boolean;
   tableSize?: number;
+  buyInMin?: number;
+  buyInMax?: number;
 }
 
 interface HomeClubCard {
@@ -85,6 +94,15 @@ const emptyGameCatalog: GameCatalogResponse = {
   games: []
 };
 
+const localClubGameCatalog: GameCatalogResponse = {
+  active_game_id: 'no_limit_texas_holdem',
+  games: [{
+    game_id: 'no_limit_texas_holdem',
+    display_name: 'No-Limit Texas Hold’em',
+    create_supported: true
+  }]
+};
+
 @Component({
   selector: 'app-root',
   imports: [FormsModule, DecimalPipe, HandReplayContainerComponent, WalletDashboardComponent],
@@ -102,6 +120,7 @@ export class App implements OnInit, OnDestroy {
   lobbyQuickMenuOpen = signal(false);
   walletOpen = signal(false);
   walletInitialScope = signal<'global' | 'club'>('global');
+  seatConfirmationOpen = signal(false);
   tableCreationStep = signal<'games' | 'settings' | 'template' | null>(null);
   selectedClubGame = signal<string>('');
   gameCatalog = signal<GameCatalogResponse>(emptyGameCatalog);
@@ -119,12 +138,12 @@ export class App implements OnInit, OnDestroy {
     winStreak: false
   });
   get clubGameOptions(): Array<{ id: string; title: string; subtitle: string; color: string }> {
-    return this.gameCatalog().games
+    return this.availableGameCatalog.games
       .filter((game) => game.create_supported)
       .map((game) => ({ id: game.game_id, title: game.display_name, subtitle: 'AVAILABLE', color: '#2488cd' }));
   }
   get lobbyGameFilters(): string[] {
-    return ['ALL', ...this.gameCatalog().games.map((game) => game.display_name)];
+    return ['ALL', ...this.availableGameCatalog.games.map((game) => game.display_name)];
   }
   readonly tableSizes = [2, 3, 4, 5, 6, 7, 8, 9];
   readonly clubTableModes = ['Regular'] as const;
@@ -268,9 +287,11 @@ export class App implements OnInit, OnDestroy {
   readonly session: UserSessionStore;
   private readonly clubApi = inject(ClubApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
+  private readonly tableRules = inject(TableRulesService);
   apiBase = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__?.apiBase ?? 'http://127.0.0.1:8000';
   clubId = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__?.clubId ?? 'demo';
   tableId = '';
+  tableGameId = signal<string | undefined>(undefined);
   smallBlind = tableCreationDefaults.default_table.create_request_defaults.small_blind;
   bigBlind = tableCreationDefaults.default_table.create_request_defaults.big_blind;
   buyInMin = tableCreationDefaults.default_table.create_request_defaults.buy_in_min;
@@ -278,6 +299,10 @@ export class App implements OnInit, OnDestroy {
   tableSize = signal<number>(tableCreationDefaults.default_table.create_request_defaults.table_size);
   seatIndex = 0;
   buyInAmount = 500;
+  availableWalletBalance = signal<number | null>(null);
+  walletBalanceLoading = signal(false);
+  walletBalanceError = signal(false);
+  localPreviewTable = signal(false);
   unionTableName = 'Union Main';
   unionTableId = '';
   raiseTo = 300;
@@ -302,10 +327,16 @@ export class App implements OnInit, OnDestroy {
   private reconnectAttempt = 0;
   private reconnectBlocked = false;
   private authFailureRetryUsed = false;
+  private pendingSitInCorrelationId: string | null = null;
+  private pendingBlindDecisionCorrelationId: string | null = null;
   private pendingPreActionCorrelationId: string | null = null;
   private readonly pendingActionCorrelationIds = new Set<string>();
   private pendingBuyInId: string | null = null;
+  private pendingBuyInSignature: string | null = null;
+  private seatRequestAwaitingSnapshot = false;
   private unsubscribeAuthState: (() => void) | null = null;
+  sitInPending = signal(false);
+  blindDecisionPending = signal(false);
 
   constructor(private readonly http: HttpClient, session: UserSessionStore) {
     this.session = session;
@@ -377,15 +408,49 @@ export class App implements OnInit, OnDestroy {
   }
 
   get selectedGameDisplayName(): string {
-    return this.gameCatalog().games.find((game) => game.game_id === this.selectedClubGame())?.display_name
+    return this.availableGameCatalog.games.find((game) => game.game_id === this.selectedClubGame())?.display_name
       ?? this.selectedClubGame();
   }
 
   get snapshotGameDisplayName(): string {
     const gameId = this.snapshot()?.game_id;
-    return this.gameCatalog().games.find((game) => game.game_id === gameId)?.display_name
+    return this.availableGameCatalog.games.find((game) => game.game_id === gameId)?.display_name
       ?? gameId
       ?? 'Unknown game';
+  }
+
+  get currentTableRules() {
+    return this.tableRules.forGame(this.snapshot()?.game_id ?? this.tableGameId(), this.snapshot()?.table_format ?? 'RING');
+  }
+
+  get canChooseBlindEntry(): boolean {
+    return this.currentPlayer?.blind_decision_pending === true
+      && (this.currentTableRules?.blindEntry.decisions.length ?? 0) > 0;
+  }
+
+  get canSeatWithWallet(): boolean {
+    const available = this.availableWalletBalance();
+    const minimum = Number(this.buyInMin);
+    const maximum = Number(this.buyInMax);
+    const requested = Number(this.buyInAmount);
+    if (this.localPreviewTable()) {
+      return Number.isFinite(minimum)
+        && Number.isFinite(maximum)
+        && Number.isFinite(requested)
+        && requested >= minimum
+        && requested <= maximum;
+    }
+    return available !== null
+      && !this.walletBalanceLoading()
+      && !this.walletBalanceError()
+      && Number.isFinite(available)
+      && Number.isFinite(minimum)
+      && Number.isFinite(maximum)
+      && Number.isFinite(requested)
+      && available >= minimum
+      && requested >= minimum
+      && requested <= maximum
+      && requested <= available;
   }
 
   get isActiveClubOwner(): boolean {
@@ -410,6 +475,13 @@ export class App implements OnInit, OnDestroy {
       && !this.currentClubCard.creatorId;
   }
 
+  private get availableGameCatalog(): GameCatalogResponse {
+    const catalog = this.gameCatalog();
+    return this.isActiveLocalClubOwner && catalog.games.length === 0
+      ? localClubGameCatalog
+      : catalog;
+  }
+
   get isAuthenticated(): boolean {
     return this.session.firebaseIdToken() !== null;
   }
@@ -420,6 +492,42 @@ export class App implements OnInit, OnDestroy {
 
   get isCurrentPlayerSatOut(): boolean {
     return this.currentPlayer?.is_sat_out ?? false;
+  }
+
+  seatTimerType(player: PokerPlayer): 'turn' | 'disconnect' | null {
+    if (player.is_connected === false && player.disconnect_seconds_left !== undefined && !player.is_sat_out) {
+      return 'disconnect';
+    }
+    if (player.seat === this.snapshot()?.active_turn_seat
+      && player.turn_seconds_left !== undefined
+      && player.is_connected !== false
+      && !player.is_sat_out) {
+      return 'turn';
+    }
+    return null;
+  }
+
+  seatTimerSeconds(player: PokerPlayer): number | null {
+    const timerType = this.seatTimerType(player);
+    const rules = this.currentTableRules?.turnPolicy;
+    const duration = timerType === 'disconnect'
+      ? rules?.disconnectGraceSeconds
+      : timerType === 'turn' ? rules?.actionSeconds : undefined;
+    const seconds = this.seatTimerType(player) === 'disconnect'
+      ? player.disconnect_seconds_left
+      : this.seatTimerType(player) === 'turn' ? player.turn_seconds_left : undefined;
+    return duration === undefined || seconds === undefined || !Number.isFinite(seconds)
+      ? null
+      : Math.max(0, Math.min(duration, seconds));
+  }
+
+  seatTimerDelay(player: PokerPlayer): string {
+    const seconds = this.seatTimerSeconds(player);
+    const timerType = this.seatTimerType(player);
+    const duration = timerType === 'disconnect'
+      ? this.currentTableRules?.turnPolicy.disconnectGraceSeconds
+      : timerType === 'turn' ? this.currentTableRules?.turnPolicy.actionSeconds : undefined;
+    return `-${seconds === null || duration === undefined ? 0 : duration - seconds}s`;
   }
 
   get isMyTurn(): boolean {
@@ -579,9 +687,9 @@ export class App implements OnInit, OnDestroy {
     }
 
     if (identifier.type === 'email') {
-      const ok = await this.firebaseAuth.signInWithEmailAndPassword(identifier.value, password);
-      if (!ok) {
-        this.loginError.set('Email sign-in failed. Check your email and password.');
+      const result = await this.firebaseAuth.signInWithEmailAndPassword(identifier.value, password);
+      if (!result.success) {
+        this.loginError.set(this.emailSignInError(result.code));
         this.signingIn.set(false);
         return;
       }
@@ -633,6 +741,22 @@ export class App implements OnInit, OnDestroy {
       'auth/invalid-email': 'Enter a valid email address.'
     };
     return messages[code] ?? `Account creation failed (${code}). Check Firebase Authentication settings.`;
+  }
+
+  private emailSignInError(code: string): string {
+    const messages: Record<string, string> = {
+      'firebase/not-configured': 'Firebase is not configured. Add your Firebase web settings to public/app-config.json.',
+      'firebase/initialization-failed': 'Firebase could not initialize. Check the Firebase settings in public/app-config.json.',
+      'auth/missing-email-or-password': 'Enter your email and password to continue.',
+      'auth/invalid-email': 'Enter a valid email address.',
+      'auth/invalid-credential': 'Email sign-in failed. Check your email and password.',
+      'auth/wrong-password': 'Email sign-in failed. Check your email and password.',
+      'auth/user-not-found': 'Email sign-in failed. Check your email and password.',
+      'auth/operation-not-allowed': 'Email/password sign-in is disabled. Enable it in Firebase Authentication settings.',
+      'auth/too-many-requests': 'Too many sign-in attempts. Wait a while and try again.',
+      'auth/network-request-failed': 'Could not reach Firebase. Check your internet connection and try again.'
+    };
+    return messages[code] ?? `Email sign-in failed (${code}). Check Firebase Authentication settings.`;
   }
 
   async requestPasswordReset(): Promise<void> {
@@ -700,8 +824,15 @@ export class App implements OnInit, OnDestroy {
 
   chooseEmptySeat(seat: number): void {
     this.seatIndex = seat;
-    this.controlsOpen.set(true);
-    this.notice.set(`Seat ${seat + 1} is open. Set your buy-in to at least ${this.buyInMin} chips and click Seat player to join.`);
+    this.buyInAmount = Number(this.buyInMin);
+    this.seatConfirmationOpen.set(true);
+    this.notice.set('');
+    if (!this.localPreviewTable()) void this.loadMemberWalletBalance();
+  }
+
+  cancelSeatConfirmation(): void {
+    if (this.busy() === 'seat' || this.busy() === 'seat-check') return;
+    this.seatConfirmationOpen.set(false);
   }
 
   goHome(): void {
@@ -747,6 +878,7 @@ export class App implements OnInit, OnDestroy {
 
   enterLobby(game = 'ALL'): void {
     this.closeSocket();
+    this.localPreviewTable.set(false);
     this.lobbyGame.set(game);
     this.screen.set('lobby');
     if (this.isActiveLocalClubOwner) {
@@ -770,10 +902,50 @@ export class App implements OnInit, OnDestroy {
 
   openTable(tableId: string, unionId: string | null = null): void {
     const selectedTable = this.visibleLobbyTables.find((table) => table.id === tableId);
+    if (selectedTable?.localOnly) {
+      this.closeSocket();
+      this.tableId = tableId.trim();
+      this.tableGameId.set(selectedTable.gameId);
+      this.tableUnionId.set(null);
+      this.tableSize.set(selectedTable.tableSize ?? this.tableSize());
+      this.buyInMin = selectedTable.buyInMin ?? this.buyInMin;
+      this.buyInMax = selectedTable.buyInMax ?? this.buyInMax;
+      this.availableWalletBalance.set(null);
+      this.walletBalanceLoading.set(false);
+      this.walletBalanceError.set(false);
+      this.localPreviewTable.set(true);
+      this.socketStatus.set('disconnected');
+      this.snapshot.set({
+        table_id: selectedTable.id,
+        table_name: selectedTable.name,
+        game_id: selectedTable.gameId,
+        table_format: 'RING',
+        table_size: selectedTable.tableSize ?? this.tableSize(),
+        is_union_table: false,
+        union_id: null,
+        origin_club_id: null,
+        hand_id: null,
+        is_hand_running: false,
+        street: null,
+        community_cards: [],
+        pot: 0,
+        pots: [],
+        active_turn_seat: null,
+        players: []
+      });
+      this.notice.set('Local preview table. Take a seat here; live hands require a connected game server.');
+      this.screen.set('table');
+      return;
+    }
+    this.localPreviewTable.set(false);
     this.tableId = tableId.trim();
+    this.tableGameId.set(selectedTable?.gameId);
     this.tableUnionId.set(unionId);
     if (selectedTable?.tableSize) this.tableSize.set(selectedTable.tableSize);
+    if (selectedTable?.buyInMin !== undefined) this.buyInMin = selectedTable.buyInMin;
+    if (selectedTable?.buyInMax !== undefined) this.buyInMax = selectedTable.buyInMax;
     this.screen.set('table');
+    void this.loadMemberWalletBalance();
     this.connectTable();
   }
 
@@ -825,7 +997,7 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.tableCreationStep.set('games');
-    this.notice.set(!this.gameCatalogLoaded()
+    this.notice.set(!this.gameCatalogLoaded() && !this.isActiveLocalClubOwner
       ? 'Game catalog is unavailable. Table creation is disabled until it loads.'
       : this.canCreateClubTables()
       ? ''
@@ -833,13 +1005,14 @@ export class App implements OnInit, OnDestroy {
   }
 
   chooseClubGame(gameId: string): void {
-    const game = this.gameCatalog().games.find((entry) => entry.game_id === gameId);
+    const game = this.availableGameCatalog.games.find((entry) => entry.game_id === gameId);
     if (!game?.create_supported) {
       this.notice.set('This game is not enabled for table creation by the backend.');
       return;
     }
     this.selectedClubGame.set(gameId);
-    this.tableCreationStep.set('settings');
+    this.selectedClubTableMode.set('Regular');
+    this.tableCreationStep.set('template');
   }
 
   toggleTableRules(): void {
@@ -855,7 +1028,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   openTableTemplate(): void {
-    this.selectedClubGame.set(this.gameCatalog().active_game_id);
+    this.selectedClubGame.set(this.availableGameCatalog.active_game_id);
     this.selectedClubTableMode.set('Regular');
     this.tableCreationStep.set('template');
     this.notice.set('');
@@ -953,6 +1126,8 @@ export class App implements OnInit, OnDestroy {
       game: this.selectedGameDisplayName,
       stakes: `${this.smallBlind} / ${this.bigBlind}`,
       buyIn: `${this.buyInMin} - ${this.buyInMax}`,
+      buyInMin: this.buyInMin,
+      buyInMax: this.buyInMax,
       players: `0 / ${this.tableSize()}`,
       status: 'OPEN',
       seatedCount: 0,
@@ -968,7 +1143,7 @@ export class App implements OnInit, OnDestroy {
   get visibleLobbyTables(): LobbyTable[] {
     const tables = this.lobbyScope() === 'union' ? this.unionTables() : this.lobbyTables;
     if (this.lobbyGame() === 'ALL') return tables;
-    const selectedGame = this.gameCatalog().games.find((game) =>
+    const selectedGame = this.availableGameCatalog.games.find((game) =>
       game.display_name === this.lobbyGame() || game.game_id === this.lobbyGame()
     );
     return tables.filter((table) => selectedGame
@@ -1064,7 +1239,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   private isSelectedGameCreateSupported(): boolean {
-    return this.gameCatalog().games.some((game) =>
+    return this.availableGameCatalog.games.some((game) =>
       game.game_id === this.selectedClubGame() && game.create_supported
     );
   }
@@ -1138,6 +1313,8 @@ export class App implements OnInit, OnDestroy {
       game: catalogGame?.display_name ?? table.game?.toUpperCase() ?? table.game_id ?? 'Unknown game',
       stakes: `${table.small_blind} / ${table.big_blind}`,
       buyIn: `${table.buy_in_min} - ${table.buy_in_max}`,
+      buyInMin: table.buy_in_min,
+      buyInMax: table.buy_in_max,
       players: `${table.seated_count} / ${table.table_size ?? table.max_seats ?? 9}`,
       status: table.is_hand_running ? 'RUNNING' : 'OPEN',
       unionId: table.union_id ?? undefined,
@@ -1221,17 +1398,85 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  seatPlayer(): void {
+  async seatPlayer(): Promise<void> {
     const minimumBuyIn = Number(this.buyInMin) || 0;
+    const maximumBuyIn = Number(this.buyInMax) || 0;
     const requestedBuyIn = Number(this.buyInAmount) || 0;
     if (requestedBuyIn < minimumBuyIn) {
       this.notice.set(`This table requires a minimum buy-in of ${minimumBuyIn} chips.`);
       return;
     }
+    if (requestedBuyIn > maximumBuyIn) {
+      this.notice.set(`This table allows a maximum buy-in of ${maximumBuyIn} chips.`);
+      return;
+    }
+
+    if (this.localPreviewTable()) {
+      const currentSnapshot = this.snapshot();
+      if (!this.isActiveLocalClubOwner || !currentSnapshot) {
+        this.notice.set('Only this local club’s creator can join its preview table.');
+        return;
+      }
+      if (currentSnapshot.players.some((player) => player.seat === Number(this.seatIndex))) {
+        this.notice.set('That seat is no longer available. Choose another seat.');
+        this.seatConfirmationOpen.set(false);
+        return;
+      }
+      if (currentSnapshot.players.some((player) => player.user_id === this.userId)) {
+        this.notice.set('You are already seated at this preview table.');
+        this.seatConfirmationOpen.set(false);
+        return;
+      }
+
+      const player: PokerPlayer = {
+        seat: Number(this.seatIndex),
+        user_id: this.userId,
+        username: this.username,
+        stack: requestedBuyIn,
+        status: 'active',
+        hole_cards: [],
+        in_hand: false,
+        club_id: this.activeClubDisplayId
+      };
+      const players = [...currentSnapshot.players, player];
+      this.snapshot.set({ ...currentSnapshot, players });
+      this.lobbyTables = this.lobbyTables.map((table) => table.id === this.tableId
+        ? { ...table, seatedCount: players.length, players: `${players.length} / ${this.tableSize()}` }
+        : table);
+      this.localClubTables.set(this.activeClubDisplayId, this.lobbyTables);
+      this.seatConfirmationOpen.set(false);
+      this.notice.set('Joined the local preview table. No wallet transaction or live hand was started.');
+      return;
+    }
 
     const idToken = this.requireFirebaseToken('joining a table');
     if (!idToken) return;
-    this.pendingBuyInId ??= crypto.randomUUID();
+    this.busy.set('seat-check');
+    this.notice.set('Checking available club chips…');
+    const availableBalance = await this.fetchMemberWalletBalance(idToken);
+    if (availableBalance === null) {
+      this.notice.set('Unable to verify your available club-chip balance. Seating is unavailable until it can be checked.');
+      this.busy.set('');
+      return;
+    }
+    if (availableBalance < minimumBuyIn || availableBalance < requestedBuyIn) {
+      this.notice.set(`Available balance is ${availableBalance} chips; this seat requires at least ${minimumBuyIn} and your buy-in is ${requestedBuyIn}.`);
+      this.busy.set('');
+      return;
+    }
+
+    const buyInSignature = JSON.stringify([
+      this.clubId,
+      this.session.memberId(),
+      this.tableUnionId(),
+      this.tableId,
+      Number(this.seatIndex),
+      requestedBuyIn
+    ]);
+    if (this.pendingBuyInId === null || this.pendingBuyInSignature !== buyInSignature) {
+      this.pendingBuyInId = crypto.randomUUID();
+      this.pendingBuyInSignature = buyInSignature;
+    }
     const request = {
       seat_index: Number(this.seatIndex),
       buy_in_amount: requestedBuyIn,
@@ -1253,6 +1498,41 @@ export class App implements OnInit, OnDestroy {
     }));
   }
 
+  private async loadMemberWalletBalance(): Promise<void> {
+    const idToken = this.session.firebaseIdToken();
+    if (!idToken || this.session.membershipStatus() !== 'verified') {
+      this.availableWalletBalance.set(null);
+      this.walletBalanceError.set(false);
+      return;
+    }
+    await this.fetchMemberWalletBalance(idToken);
+  }
+
+  private async fetchMemberWalletBalance(idToken: string): Promise<number | null> {
+    this.walletBalanceLoading.set(true);
+    this.walletBalanceError.set(false);
+    try {
+      const wallet = await firstValueFrom(this.clubApi.getMemberWalletSummary(this.baseUrl(), this.clubId, idToken));
+      if (wallet.club_id !== this.clubId
+        || wallet.user_id !== this.session.memberId()
+        || wallet.currency_type !== 'CLUB_CHIPS'
+        || !Number.isFinite(wallet.available_balance)
+        || wallet.available_balance < 0
+        || !Number.isFinite(wallet.in_play_balance)
+        || wallet.in_play_balance < 0) {
+        throw new Error('Wallet summary did not match the signed-in club member.');
+      }
+      this.availableWalletBalance.set(wallet.available_balance);
+      return wallet.available_balance;
+    } catch {
+      this.availableWalletBalance.set(null);
+      this.walletBalanceError.set(true);
+      return null;
+    } finally {
+      this.walletBalanceLoading.set(false);
+    }
+  }
+
   startHand(): void {
     if (this.tableUnionId() ? !this.session.canManageUnion(this.tableUnionId()) : !this.session.canManageTables()) return;
     const idToken = this.requireFirebaseToken('starting a hand');
@@ -1272,6 +1552,10 @@ export class App implements OnInit, OnDestroy {
   }
 
   connectTable(): void {
+    if (this.localPreviewTable()) {
+      this.notice.set('This is a local preview table. Live gameplay requires a connected game server.');
+      return;
+    }
     if (!this.tableId.trim()) {
       this.notice.set('Select a table from the lobby before connecting.');
       return;
@@ -1343,8 +1627,20 @@ export class App implements OnInit, OnDestroy {
   }
 
   onImBack(): void {
-    this.notice.set('Reconnecting to the table. The server will provide your current seat state.');
+    if (!this.isCurrentPlayerSatOut) return;
+    this.pendingSitInCorrelationId ??= crypto.randomUUID();
+    this.sitInPending.set(true);
+    if (this.socketStatus() === 'connected'
+      && this.sendSocketEnvelope('SIT_IN', {}, this.pendingSitInCorrelationId)) {
+      this.notice.set('Requesting to sit back in. Waiting for the server table snapshot.');
+      return;
+    }
+    this.notice.set('Reconnecting and requesting to sit back in…');
     this.connectTable();
+  }
+
+  openTableChat(): void {
+    this.notice.set('Table chat is not available in this backend yet.');
   }
 
   sendAction(action: 'FOLD' | 'CHECK' | 'CALL' | 'RAISE'): void {
@@ -1362,6 +1658,21 @@ export class App implements OnInit, OnDestroy {
     if (this.sendSocketEnvelope('PLAYER_ACTION', payload, correlationId)) {
       this.pendingActionCorrelationIds.add(correlationId);
     }
+  }
+
+  sendBlindEntryDecision(decision: BlindEntryChoice): void {
+    if (!this.canChooseBlindEntry || !this.currentTableRules?.blindEntry.decisions.includes(decision)) return;
+    if (this.blindDecisionPending()) return;
+    const correlationId = crypto.randomUUID();
+    if (!this.sendSocketEnvelope(this.currentTableRules.blindEntry.event, { decision }, correlationId)) {
+      this.notice.set('Connect to the table before choosing how to enter the blind rotation.');
+      return;
+    }
+    this.pendingBlindDecisionCorrelationId = correlationId;
+    this.blindDecisionPending.set(true);
+    this.notice.set(decision === 'POST_BLIND'
+      ? 'Post-blind request sent. Waiting for the table snapshot.'
+      : 'Wait-for-big-blind request sent. Waiting for the table snapshot.');
   }
 
   private createSocketEnvelope<TPayload>(
@@ -1399,6 +1710,9 @@ export class App implements OnInit, OnDestroy {
         this.authFailureRetryUsed = false;
         this.reconnectBlocked = false;
         this.notice.set('');
+        if (this.pendingSitInCorrelationId) {
+          this.sendSocketEnvelope('SIT_IN', {}, this.pendingSitInCorrelationId);
+        }
         return;
       }
       if (event === 'PRE_ACTION_SET') {
@@ -1417,10 +1731,34 @@ export class App implements OnInit, OnDestroy {
         }
         return;
       }
+      if (event === 'SIT_IN_ERROR') {
+        if (message['correlation_id'] === this.pendingSitInCorrelationId) {
+          this.pendingSitInCorrelationId = null;
+          this.sitInPending.set(false);
+        }
+        this.notice.set(typeof payload['message'] === 'string' ? payload['message'] : 'The server could not return you to the table.');
+        return;
+      }
+      if (event === 'BLIND_DECISION_ERROR') {
+        if (message['correlation_id'] === this.pendingBlindDecisionCorrelationId) {
+          this.pendingBlindDecisionCorrelationId = null;
+          this.blindDecisionPending.set(false);
+        }
+        this.notice.set(typeof payload['message'] === 'string' ? payload['message'] : 'The server could not apply that blind-entry choice.');
+        return;
+      }
       if (event === 'ACTION_ERROR' || typeof message['code'] === 'number' || typeof payload['code'] === 'number') {
         const correlationId = message['correlation_id'];
+        if (correlationId === this.pendingSitInCorrelationId) {
+          this.pendingSitInCorrelationId = null;
+          this.sitInPending.set(false);
+        }
         if (correlationId === this.pendingPreActionCorrelationId) {
           this.pendingPreActionCorrelationId = null;
+        }
+        if (correlationId === this.pendingBlindDecisionCorrelationId) {
+          this.pendingBlindDecisionCorrelationId = null;
+          this.blindDecisionPending.set(false);
         }
         if (event === 'ACTION_ERROR' && typeof correlationId === 'string') {
           if (!this.pendingActionCorrelationIds.has(correlationId)) return;
@@ -1451,6 +1789,7 @@ export class App implements OnInit, OnDestroy {
 
   private applySnapshot(snapshot: TableSnapshot): void {
     if (snapshot.table_id !== this.tableId || !Array.isArray(snapshot.players)) return;
+    if (snapshot.game_id) this.tableGameId.set(snapshot.game_id);
     const reportedSize = snapshot.table_size ?? snapshot.max_seats;
     if (reportedSize !== undefined) {
       const tableSize = Number(reportedSize);
@@ -1462,6 +1801,13 @@ export class App implements OnInit, OnDestroy {
     }
     this.snapshot.set(snapshot);
     const ownPlayer = snapshot.players.find((player) => player.user_id === this.userId);
+    if (this.seatRequestAwaitingSnapshot && ownPlayer) {
+      this.seatRequestAwaitingSnapshot = false;
+      this.seatConfirmationOpen.set(false);
+      this.controlsOpen.set(false);
+      this.notice.set('Player seated.');
+      void this.loadMemberWalletBalance();
+    }
     if (!ownPlayer) {
       this.preAction.set(null);
       this.preActionPending.set(false);
@@ -1470,6 +1816,14 @@ export class App implements OnInit, OnDestroy {
         : ownPlayer.pre_action === 'FOLD' ? 'fold'
           : ownPlayer.pre_action === 'CALL_ANY' ? 'call-any' : null);
       this.preActionPending.set(false);
+    }
+    if (ownPlayer && !ownPlayer.is_sat_out) {
+      this.pendingSitInCorrelationId = null;
+      this.sitInPending.set(false);
+    }
+    if (ownPlayer?.blind_decision_pending !== true) {
+      this.pendingBlindDecisionCorrelationId = null;
+      this.blindDecisionPending.set(false);
     }
   }
 
@@ -1567,9 +1921,28 @@ export class App implements OnInit, OnDestroy {
     this.notice.set('');
     request().subscribe({
       next: (response) => {
-        if (key !== 'create' && key !== 'start') this.snapshot.set(response as TableSnapshot);
-        if (key === 'seat') this.pendingBuyInId = null;
-        this.notice.set(successMessage ?? (key === 'create' ? 'Table created.' : key === 'seat' ? 'Player seated.' : 'Hand started.'));
+        if (key === 'seat') {
+          this.pendingBuyInId = null;
+          this.pendingBuyInSignature = null;
+          const seatSnapshot = response as Partial<TableSnapshot>;
+          if (seatSnapshot.table_id === this.tableId && Array.isArray(seatSnapshot.players)) {
+            this.applySnapshot(seatSnapshot as TableSnapshot);
+          }
+          if (!this.currentPlayer) {
+            this.seatRequestAwaitingSnapshot = true;
+            this.notice.set('Seat request accepted. Waiting for the table to confirm your seat…');
+            this.busy.set('');
+            if (this.socketStatus() !== 'connected') this.connectTable();
+            return;
+          }
+          this.seatConfirmationOpen.set(false);
+          this.controlsOpen.set(false);
+          this.notice.set(successMessage ?? 'Player seated.');
+          void this.loadMemberWalletBalance();
+        } else {
+          if (key !== 'create' && key !== 'start') this.snapshot.set(response as TableSnapshot);
+          this.notice.set(successMessage ?? (key === 'create' ? 'Table created.' : 'Hand started.'));
+        }
         this.busy.set('');
         if (key === 'create') {
           this.tableCreationStep.set(null);
@@ -1579,6 +1952,7 @@ export class App implements OnInit, OnDestroy {
         if (key === 'start' && this.socketStatus() !== 'connected') this.connectTable();
       },
       error: (error: unknown) => {
+        if (key === 'seat') this.seatRequestAwaitingSnapshot = false;
         this.notice.set(this.errorMessage(error));
         this.busy.set('');
       }

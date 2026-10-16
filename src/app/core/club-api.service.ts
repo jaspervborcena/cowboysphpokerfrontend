@@ -9,6 +9,14 @@ export interface ClubMembershipResponse {
   role: 'OWNER' | 'MANAGER' | 'AGENT' | 'PLAYER';
 }
 
+export interface ClubMemberWalletSummary {
+  club_id: string;
+  user_id: string;
+  currency_type: 'CLUB_CHIPS';
+  available_balance: number;
+  in_play_balance: number;
+}
+
 export interface ClubTableSummary {
   table_id: string;
   table_name: string;
@@ -106,6 +114,13 @@ export class ClubApiService {
   getMembership(apiBase: string, clubId: string, idToken: string): Observable<ClubMembershipResponse> {
     const url = `${apiBase.replace(/\/$/, '')}/clubs/${encodeURIComponent(clubId)}/members/me`;
     return this.http.get<ClubMembershipResponse>(url, {
+      headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
+    });
+  }
+
+  getMemberWalletSummary(apiBase: string, clubId: string, idToken: string): Observable<ClubMemberWalletSummary> {
+    const url = `${apiBase.replace(/\/$/, '')}/clubs/${encodeURIComponent(clubId)}/members/me/wallet`;
+    return this.http.get<ClubMemberWalletSummary>(url, {
       headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
     });
   }

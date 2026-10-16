@@ -12,12 +12,16 @@ The Angular client implements clubhouse, lobby, live-table, union-table, and han
 - One auth gate for member content, Philippine phone-number normalization, and explicit global-account state when a signed-in user has no club membership.
 - A least-privilege `PLAYER` state while membership is loading; elevated roles come from the backend membership response.
 - Configurable API base URL, club ID, and Firebase web config loaded before Angular starts.
-- A home-icon menu with Create A Club and Friend Table actions. A created profile is saved in browser storage, its creator can reopen the local room as OWNER, and that room can contain non-joinable table previews; server-side club creation, table play, and friend-table invites are not connected.
+- A home-icon menu with Create A Club and Friend Table actions. A created profile is saved in browser storage, its creator can reopen the local room as OWNER, and enter its local table previews; local seating is creator-only and does not connect to server gameplay. Server-side club creation and friend-table invites are not connected.
 - A consistent Club lobby action row for every role. Anyone can open the game picker; only verified Owners and Managers can submit creation. The picker is loaded from `GET /games` and offers only entries with `create_supported: true`. When the catalog is unavailable, creation is disabled instead of guessing supported variants.
 - Table creation defaults live in [src/app/data/table-creation-defaults.json](src/app/data/table-creation-defaults.json): NLH, 1/2 blinds, 50-1,000 buy-in, and 9 seats. Create requests include `game_id`, blinds, buy-in limits, and `table_size`; unsupported modes and advanced template settings are not offered for server-created tables.
+- Game behavior is separated into per-game rule files under [src/app/features/table/rules](src/app/features/table/rules). Hold’em Ring and PLO4 Ring currently share the buy-in confirmation, blind-entry choices, and 20-second timing policy; add another file and register it in `TableRulesService` to define another game/format.
+- Selecting an empty chair opens a buy-in confirmation prefilled to that table's minimum. The UI validates the verified member's wallet summary, fails closed on mismatched identity or invalid balances, and checks available funds before requesting a seat. Idempotency keys stay tied to the member and exact seat request; the available balance refreshes after the server confirms seating.
+- After seating, if the server marks `blind_decision_pending`, the player can choose to post the blind or wait for the big blind. The client sends correlated `BLIND_DECISION` and does not apply the choice optimistically.
 - Each returned table is shown in its own card with the catalog-resolved `game_id`, status, blinds, buy-in range, and seat counts. Missing game identifiers are not presented as NLH.
+- The table route is table-only: setup and connection fields are not shown beside the felt. Players select open seats and use game actions on the table surface; verified table managers can start a hand there.
 - Table creation/seating/hand-start requests, authenticated websocket setup, and replay API integration.
-- Live-table sockets use WebSocket protocol v1 envelopes, force-refresh Firebase tokens for each connection, answer `PING`, and reconnect with a new full server snapshot. Player actions include `action_id`; pre-actions use `PRE_ACTION` and are displayed from the player's snapshot. The client does not locally resolve turns or change seat/connectivity state after disconnects.
+- Live-table sockets use WebSocket protocol v1 envelopes, force-refresh Firebase tokens for each connection, answer `PING`, and reconnect with a new full server snapshot. Player actions include `action_id`; pre-actions use `PRE_ACTION` and are displayed from the player's snapshot. The table UI renders the server's 20-second action and disconnect timers but never locally resolves turns or changes seat/connectivity state.
 - Live club tables are membership-gated and show actual empty/error results rather than demo rows. Mock Club and Global Room cards open isolated preview lobbies; only the configured club connects to backend data, and global play/invitation-based club switching are not connected.
 - Server-provided disconnect and sit-out state only. Disconnect protection, timers, and actions remain backend-authoritative.
 - A fixture-backed wallet dashboard at [public/ui-mocks/wallet-dashboard.json](public/ui-mocks/wallet-dashboard.json), labeled mock-only and keeping global, treasury, agent, player, and table-stack balances separate. It is not connected to live wallet APIs or Firestore.
@@ -97,7 +101,7 @@ Keep each wallet scope separate:
 - `CLUB_TREASURY`: show the club reserve and authorized inter-club transfer history in owner/manager tools.
 - `TABLE_ESCROW` / table stack: display the player's stack for that table, but never treat it as another spendable wallet or add it to available balance.
 
-A member can hold both `AGENT` and `PLAYER` roles in the same club. Keep their `CLUB_AGENT` and `CLUB_PLAYER` accounts and views distinct; never aggregate balances across wallet types or currency types. The persistent global wallet and separate agent/player wallet APIs are not implemented, so all planned wallet surfaces remain mock-only until backend models, endpoints, and permissions are defined.
+A member can hold both `AGENT` and `PLAYER` roles in the same club. Keep their `CLUB_AGENT` and `CLUB_PLAYER` accounts and views distinct; never aggregate balances across wallet types or currency types. The persistent global wallet and separate agent/player wallet APIs are not implemented. The dashboard remains mock-only; table seating uses the authenticated club wallet-summary contract below when the backend implements it.
 
 ## Backend contract and known gaps
 
@@ -107,6 +111,7 @@ This frontend assumes a backend exists for the following endpoints and behavior:
 - game catalog at `GET /games`; the UI uses `active_game_id`, `game_id`, `display_name`, and `create_supported`
 - table creation and setup
 - seat assignment with `buy_in_amount`
+- authenticated wallet summary at `GET /clubs/{club_id}/members/me/wallet`, returning `club_id`, `user_id`, `currency_type: "CLUB_CHIPS"`, `available_balance`, and `in_play_balance`
 - table list or club-lobby data
 - hand start and table update streams
 - authenticated websocket access for table state
@@ -120,22 +125,24 @@ This frontend assumes a backend exists for the following endpoints and behavior:
 
 An authenticated Firebase account is globally valid; club membership is separate and begins when a club invitation is accepted. A missing club membership must not invalidate the global account. Phone/password sign-in and reset routes are frontend contracts, not proof that the backend routes exist. Phone account creation is not implemented yet. Do not authenticate based only on a client-supplied phone number.
 
+Before seating, the client fetches the signed-in member's wallet summary from the home club and validates its club, member, currency, and both balances. `available_balance` must cover both the table minimum and requested buy-in; `in_play_balance` and table stacks are not spendable for another buy-in. The request idempotency key is reused only for an identical member/table/seat/amount request, and the displayed available balance refreshes after server confirmation. This is a UI preflight only: the seat endpoint must atomically re-check and reserve/debit the funds. The wallet-summary route is required by the frontend but is not implemented in this workspace's backend.
+
 The replay feature is split into a token-authenticated API service, signal store, container, and presentation components under `src/app/features/hand-replay/`. Private hand history requests require the active Firebase ID token from the authenticated session.
 
 At startup, Firebase web configuration defaults to `src/environments/environment.ts`. The app fetches `/app-config.json` before Angular starts; `apiBase` and `clubId` come from that file, and its optional `firebase` object overrides the Firebase default. Firebase web config is public client configuration, not a server secret, and its API key should be restricted in Google Cloud Console. Protected club and union requests use the Firebase ID token. Club tables load only after club membership is verified, and there are no sample table rows when a list is empty or unavailable. Union seats are debited from the selected home club. The socket URL omits the player ID; its first v1 `AUTHENTICATE` envelope carries the token and, for union play, the home `club_id`.
 
-The backend owns heartbeat deadlines, auto-check/fold behavior, sit-out state, reconnect rules, and table snapshots. The frontend replies to `PING` with `PONG`, authenticates again after reconnect, and replaces local state with the full `TABLE_SNAPSHOT`. It does not claim that reconnecting performs a sit-in action.
+The backend owns heartbeat deadlines, auto-check/fold behavior, sit-out state, reconnect rules, and table snapshots. It must provide `turn_seconds_left`, `disconnect_seconds_left`, and `disconnect_timeout_count` in player snapshots. A normal action gets 20 seconds; on expiry, the server checks when legal and otherwise folds. A disconnect starts a fresh 20-second recovery window; if it expires, the server auto-folds, and a second expired disconnect window marks the player sat out. The frontend only animates these server-provided timers. A sat-out player can send correlated `SIT_IN`; the UI clears sit-out only after a confirming `TABLE_SNAPSHOT`. The frontend replies to `PING` with `PONG`, authenticates again after reconnect, and replaces local state with the full snapshot.
 
-WebSocket table messages use protocol version `1.0`, exact local/union topic names, and `event` envelopes with `correlation_id`. Actions are sent as `PLAYER_ACTION` with a fresh `action_id`; pre-actions use `PRE_ACTION`, and the selected value is read from the player's next full snapshot.
+WebSocket table messages use protocol version `1.0`, exact local/union topic names, and `event` envelopes with `correlation_id`. Actions are sent as `PLAYER_ACTION` with a fresh `action_id`; pre-actions use `PRE_ACTION`, and the selected value is read from the player's next full snapshot. `BLIND_DECISION` accepts `POST_BLIND` or `WAIT_FOR_BIG_BLIND`; only a server snapshot clears the pending choice. The backend must provide `blind_decision_pending` and `blind_amount_to_post` on the player snapshot and validate the requested choice.
 
 ## Local development
 
 ```powershell
 npm install
-npm start
+npx ng serve
 ```
 
-Open http://localhost:4200. The backend allows local Angular origins by default; configure `CORS_ALLOWED_ORIGINS` for deployment. The API base URL can be changed from the table setup drawer in the app.
+Open http://localhost:4200. The backend allows local Angular origins by default; configure `CORS_ALLOWED_ORIGINS` for deployment. Set `apiBase` and `clubId` in `public/app-config.json` before startup; the table-only view does not expose development connection fields.
 
 ## Validation
 

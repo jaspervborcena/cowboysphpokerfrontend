@@ -24,6 +24,13 @@ describe('App', () => {
         provideHttpClientTesting(),
         { provide: ClubApiService, useValue: {
           getGames: () => of(testGameCatalog),
+          getMemberWalletSummary: () => of({
+            club_id: 'demo',
+            user_id: 'player-1',
+            currency_type: 'CLUB_CHIPS',
+            available_balance: 1000,
+            in_play_balance: 0
+          }),
           getTables: () => of([]),
           getUnions: () => of([]),
           getUnionTables: () => of([])
@@ -39,16 +46,46 @@ describe('App', () => {
     expect(app.isMyTurn).toBeFalse();
   });
 
-  it('should let the server validate buy-in against the member ledger', () => {
+  it('should open a buy-in confirmation at the selected table minimum', () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    app.buyInMin = 100;
+    app.buyInMax = 800;
+
+    app.chooseEmptySeat(4);
+
+    expect(app.seatIndex).toBe(4);
+    expect(app.buyInAmount).toBe(100);
+    expect(app.seatConfirmationOpen()).toBeTrue();
+    expect(app.snapshot()?.players ?? []).toEqual([]);
+  });
+
+  it('should check wallet funds before asking the server to reserve the buy-in', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
     const session = TestBed.inject(UserSessionStore);
     const http = TestBed.inject(HttpTestingController);
+    const walletApi = TestBed.inject(ClubApiService);
+    spyOn(walletApi, 'getMemberWalletSummary').and.returnValues(of({
+      club_id: 'club-1',
+      user_id: 'player-1',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 1000,
+      in_play_balance: 0
+    }), of({
+      club_id: 'club-1',
+      user_id: 'player-1',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 500,
+      in_play_balance: 500
+    }));
     session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
     app.clubId = 'club-1';
     app.tableId = 'table-9';
     app.buyInMin = 100;
+    app.buyInMax = 1000;
     app.buyInAmount = 500;
+    app.seatIndex = 2;
+    app.seatConfirmationOpen.set(true);
     app.snapshot.set({
       table_id: 'table-9',
       table_name: 'Test Table',
@@ -73,12 +110,182 @@ describe('App', () => {
       }]
     } as any);
 
-    app.seatPlayer();
+    await app.seatPlayer();
 
     const request = http.expectOne('http://127.0.0.1:8000/clubs/club-1/tables/table-9/seats');
     expect(request.request.method).toBe('POST');
     expect(request.request.body.buy_in_amount).toBe(500);
-    request.flush({});
+    request.flush({
+      table_id: 'table-9',
+      table_name: 'Test Table',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: null,
+      is_hand_running: false,
+      street: null,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: null,
+      players: [{
+        seat: 2,
+        user_id: 'player-1',
+        username: 'Player',
+        stack: 500,
+        status: 'active',
+        hole_cards: [],
+        in_hand: false
+      }]
+    });
+    expect(app.seatConfirmationOpen()).toBeFalse();
+    expect(app.currentPlayer?.seat).toBe(2);
+    await fixture.whenStable();
+    expect(walletApi.getMemberWalletSummary).toHaveBeenCalledTimes(2);
+    expect(app.availableWalletBalance()).toBe(500);
+    http.verify();
+  });
+
+  it('should not request a seat when the wallet cannot cover the minimum buy-in', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const http = TestBed.inject(HttpTestingController);
+    const walletApi = TestBed.inject(ClubApiService);
+    spyOn(walletApi, 'getMemberWalletSummary').and.returnValue(of({
+      club_id: 'club-1',
+      user_id: 'player-1',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 99,
+      in_play_balance: 0
+    }));
+    session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
+    app.clubId = 'club-1';
+    app.tableId = 'table-9';
+    app.buyInMin = 100;
+    app.buyInMax = 1000;
+    app.buyInAmount = 100;
+
+    await app.seatPlayer();
+
+    expect(app.notice()).toContain('Available balance is 99 chips');
+    http.expectNone('http://127.0.0.1:8000/clubs/club-1/tables/table-9/seats');
+    http.verify();
+  });
+
+  it('should fail closed when the wallet summary belongs to another member', async () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const http = TestBed.inject(HttpTestingController);
+    spyOn(TestBed.inject(ClubApiService), 'getMemberWalletSummary').and.returnValue(of({
+      club_id: 'club-1',
+      user_id: 'different-player',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 1000,
+      in_play_balance: 0
+    }));
+    session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
+    app.clubId = 'club-1';
+    app.tableId = 'table-9';
+    app.buyInMin = 100;
+    app.buyInMax = 1000;
+    app.buyInAmount = 100;
+
+    await app.seatPlayer();
+
+    expect(app.walletBalanceError()).toBeTrue();
+    expect(app.notice()).toContain('Unable to verify your available club-chip balance');
+    http.expectNone('http://127.0.0.1:8000/clubs/club-1/tables/table-9/seats');
+    http.verify();
+  });
+
+  it('should fail closed when the wallet summary has an invalid in-play balance', async () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const http = TestBed.inject(HttpTestingController);
+    spyOn(TestBed.inject(ClubApiService), 'getMemberWalletSummary').and.returnValue(of({
+      club_id: 'club-1',
+      user_id: 'player-1',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 1000,
+      in_play_balance: Number.NaN
+    }));
+    session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
+    app.clubId = 'club-1';
+    app.tableId = 'table-9';
+    app.buyInMin = 100;
+    app.buyInMax = 1000;
+    app.buyInAmount = 100;
+
+    await app.seatPlayer();
+
+    expect(app.walletBalanceError()).toBeTrue();
+    http.expectNone('http://127.0.0.1:8000/clubs/club-1/tables/table-9/seats');
+    http.verify();
+  });
+
+  it('should use a new idempotency key if buy-in details change after a failed request', async () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const http = TestBed.inject(HttpTestingController);
+    spyOn(TestBed.inject(ClubApiService), 'getMemberWalletSummary').and.returnValue(of({
+      club_id: 'club-1',
+      user_id: 'player-1',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 1000,
+      in_play_balance: 0
+    }));
+    session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
+    app.clubId = 'club-1';
+    app.tableId = 'table-9';
+    app.buyInMin = 100;
+    app.buyInMax = 1000;
+    app.buyInAmount = 100;
+
+    await app.seatPlayer();
+    const firstRequest = http.expectOne('http://127.0.0.1:8000/clubs/club-1/tables/table-9/seats');
+    const firstBuyInId = firstRequest.request.body.buy_in_id;
+    firstRequest.flush({ code: 40901 }, { status: 409, statusText: 'Conflict' });
+
+    await app.seatPlayer();
+    const sameRequest = http.expectOne('http://127.0.0.1:8000/clubs/club-1/tables/table-9/seats');
+    expect(sameRequest.request.body.buy_in_id).toBe(firstBuyInId);
+    sameRequest.flush({ code: 40901 }, { status: 409, statusText: 'Conflict' });
+
+    app.buyInAmount = 200;
+    await app.seatPlayer();
+
+    const retryRequest = http.expectOne('http://127.0.0.1:8000/clubs/club-1/tables/table-9/seats');
+    expect(retryRequest.request.body.buy_in_id).not.toBe(firstBuyInId);
+    expect(retryRequest.request.body.buy_in_amount).toBe(200);
+    retryRequest.flush({ status: 'accepted' });
+    http.verify();
+  });
+
+  it('should keep the buy-in confirmation open until a table snapshot confirms the seat', async () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const http = TestBed.inject(HttpTestingController);
+    spyOn(TestBed.inject(ClubApiService), 'getMemberWalletSummary').and.returnValue(of({
+      club_id: 'demo',
+      user_id: 'player-1',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 500,
+      in_play_balance: 0
+    }));
+    session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
+    app.tableId = 'table-1';
+    app.buyInMin = 100;
+    app.buyInMax = 1000;
+    app.buyInAmount = 100;
+    app.seatIndex = 2;
+    app.seatConfirmationOpen.set(true);
+
+    await app.seatPlayer();
+    http.expectOne('http://127.0.0.1:8000/clubs/demo/tables/table-1/seats').flush({ status: 'accepted' });
+
+    expect(app.seatConfirmationOpen()).toBeTrue();
+    expect(app.currentPlayer).toBeUndefined();
     http.verify();
   });
 
@@ -172,8 +379,7 @@ describe('App', () => {
     session.setVerifiedMember('manager-1', 'Manager', 'MANAGER');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.create-table-card')).not.toBeNull();
-    expect(fixture.nativeElement.querySelector('.empty-create-table-button')).not.toBeNull();
-    (fixture.nativeElement.querySelector('.empty-create-table-button') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.create-table-card') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.game-picker-grid')).not.toBeNull();
     expect(fixture.nativeElement.querySelectorAll('.game-choice').length).toBe(1);
@@ -181,9 +387,9 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.table-template-button')).toBeNull();
     (fixture.nativeElement.querySelector('[data-game="no_limit_texas_holdem"]') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.table-settings-form')).not.toBeNull();
-    expect(fixture.nativeElement.querySelector('.table-mode-tabs')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.table-rule-row')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.table-template-editor')).not.toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('.template-option-section').length).toBeGreaterThan(0);
+    expect(fixture.nativeElement.querySelector('.table-mode-tabs')).not.toBeNull();
 
     session.setVerifiedMember('player-1', 'Player', 'PLAYER');
     fixture.detectChanges();
@@ -293,20 +499,23 @@ describe('App', () => {
     request.flush({});
   });
 
-  it('should create a named local table for a selected game using the JSON defaults', () => {
+  it('should create a local table for its owner when the remote game catalog is empty', () => {
     localStorage.removeItem('cowboys-local-clubs');
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
     const session = TestBed.inject(UserSessionStore);
     fixture.detectChanges();
+    app.gameCatalog.set({ active_game_id: '', games: [] });
+    app.gameCatalogLoaded.set(true);
     session.setAuthenticatedIdentity('template-creator', 'Template Creator', 'firebase-token');
     app.clubNameDraft.set('Micro Room');
     app.saveClubProfile();
 
     const club = app.homeClubCards.find((card) => card.name === 'Micro Room')!;
     app.openClubCard(club);
-    app.openTableTemplate();
-    app.selectedClubGame.set('no_limit_texas_holdem');
+    app.openClubTableWizard();
+    expect(app.clubGameOptions.map((game) => game.id)).toEqual(['no_limit_texas_holdem']);
+    app.chooseClubGame('no_limit_texas_holdem');
     app.tableDraftName.set('Morning Game');
     app.createClubTableFromWizard();
 
@@ -387,6 +596,7 @@ describe('App', () => {
   it('should open the home menu and club profile from the home action', () => {
     localStorage.removeItem('cowboys-local-clubs');
     const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
     fixture.detectChanges();
     TestBed.inject(UserSessionStore).setAuthenticatedIdentity('global-user', 'Global Player', 'firebase-token');
 
@@ -418,19 +628,25 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.lobby-club-name')?.textContent).toContain('Harbor Cards');
     expect(fixture.nativeElement.querySelector('.lobby-club-name')?.textContent).toContain('OWNER');
     expect(fixture.nativeElement.querySelector('.create-table-card')).not.toBeNull();
-    expect(fixture.nativeElement.querySelector('.empty-create-table-button')).not.toBeNull();
 
     (fixture.nativeElement.querySelector('.create-table-card') as HTMLButtonElement).click();
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('[data-game="no_limit_texas_holdem"]') as HTMLButtonElement).click();
     fixture.detectChanges();
-    const tableName = fixture.nativeElement.querySelector('input[name="tableDraftName"]') as HTMLInputElement;
+    const tableName = fixture.nativeElement.querySelector('input[name="templateTableName"]') as HTMLInputElement;
     tableName.value = 'Harbor Main';
     tableName.dispatchEvent(new Event('input'));
-    (fixture.nativeElement.querySelector('.table-settings-form button[type="submit"]') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.table-template-editor > .table-wizard-actions button:last-child') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.lobby-table-card h3')?.textContent).toContain('Harbor Main');
-    expect(fixture.nativeElement.querySelector('.lobby-table-card button[disabled]')?.textContent).toContain('Local preview');
+    const enterTableButton = fixture.nativeElement.querySelector('.lobby-table-card .lobby-table-actions button') as HTMLButtonElement;
+    expect(enterTableButton.disabled).toBeFalse();
+    expect(enterTableButton.textContent).toContain('Enter table');
+    enterTableButton.click();
+    fixture.detectChanges();
+    expect(app.screen()).toBe('table');
+    expect(app.localPreviewTable()).toBeTrue();
+    expect(app.snapshot()?.table_id).toBe('harbor-main');
     localStorage.removeItem('cowboys-local-clubs');
   });
 
@@ -526,6 +742,7 @@ describe('App', () => {
     app.snapshot.set({
       table_id: 'table-1',
       table_name: 'Test Table',
+      game_id: 'no_limit_texas_holdem',
       is_union_table: false,
       union_id: null,
       origin_club_id: null,
@@ -616,7 +833,7 @@ describe('App', () => {
     expect(leftSeat.x).toBeLessThan(mySeat.x);
   });
 
-  it('should not locally change seat state after disconnect or claim that reconnect sits in', () => {
+  it('should request reconnect for a sat-out player without locally changing their state', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
     const session = TestBed.inject(UserSessionStore);
@@ -645,19 +862,203 @@ describe('App', () => {
         hole_cards: ['As', 'Kd'],
         in_hand: true,
         is_connected: false,
-        is_sat_out: false,
+        is_sat_out: true,
         disconnect_seconds_left: 15
       }]
     } as any);
 
     app.handlePlayerDisconnected();
     expect(app.currentPlayer?.is_connected).toBeFalse();
-    expect(app.currentPlayer?.is_sat_out).toBeFalse();
+    expect(app.currentPlayer?.is_sat_out).toBeTrue();
     const connectSpy = spyOn(app, 'connectTable');
     app.onImBack();
-    expect(app.currentPlayer?.is_sat_out).toBeFalse();
+    expect(app.currentPlayer?.is_sat_out).toBeTrue();
     expect(connectSpy).toHaveBeenCalled();
-    expect(app.notice()).toContain('server will provide');
+    expect(app.notice()).toContain('requesting to sit back in');
+  });
+
+  it('should send correlated SIT_IN and clear sit-out only after the server snapshot', () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    TestBed.inject(UserSessionStore).setVerifiedMember('player-1', 'Player', 'PLAYER');
+    app.tableId = 'table-1';
+    app.snapshot.set({
+      table_id: 'table-1',
+      table_name: 'Test Table',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: null,
+      is_hand_running: false,
+      street: null,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: null,
+      players: [{
+        seat: 0,
+        user_id: 'player-1',
+        username: 'Player',
+        stack: 500,
+        status: 'sat_out',
+        hole_cards: [],
+        in_hand: false,
+        is_sat_out: true
+      }]
+    });
+    app.socketStatus.set('disconnected');
+    const sentMessages: string[] = [];
+    const connectSpy = spyOn(app, 'connectTable');
+
+    app.onImBack();
+    expect(connectSpy).toHaveBeenCalled();
+    expect(sentMessages).toEqual([]);
+    (app as any).socket = {
+      readyState: WebSocket.OPEN,
+      send: (data: string) => sentMessages.push(data),
+      close: () => undefined
+    };
+    (app as any).handleSocketMessage(JSON.stringify({ event: 'AUTHENTICATED' }));
+
+    const sitInMessage = JSON.parse(sentMessages[0]);
+    expect(sitInMessage.event).toBe('SIT_IN');
+    expect(sitInMessage.correlation_id).toBeTruthy();
+    expect(app.currentPlayer?.is_sat_out).toBeTrue();
+    expect(app.sitInPending()).toBeTrue();
+
+    (app as any).handleSocketMessage(JSON.stringify({
+      event: 'TABLE_SNAPSHOT',
+      payload: {
+        table_id: 'table-1',
+        players: [{
+          seat: 0,
+          user_id: 'player-1',
+          username: 'Player',
+          stack: 500,
+          status: 'active',
+          hole_cards: [],
+          in_hand: false,
+          is_sat_out: false
+        }]
+      }
+    }));
+
+    expect(app.currentPlayer?.is_sat_out).toBeFalse();
+    expect(app.sitInPending()).toBeFalse();
+  });
+
+  it('should display server-provided action and disconnect timer values', () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    TestBed.inject(UserSessionStore).setVerifiedMember('player-1', 'Player', 'PLAYER');
+    app.tableId = 'table-1';
+    app.snapshot.set({
+      table_id: 'table-1',
+      table_name: 'Test Table',
+      game_id: 'no_limit_texas_holdem',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: 'hand-1',
+      is_hand_running: true,
+      street: 0,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: 0,
+      players: [{
+        seat: 0,
+        user_id: 'player-1',
+        username: 'Player',
+        stack: 500,
+        status: 'active',
+        hole_cards: [],
+        in_hand: true,
+        turn_seconds_left: 12
+      }]
+    });
+
+    const player = app.currentPlayer!;
+    expect(app.seatTimerType(player)).toBe('turn');
+    expect(app.seatTimerSeconds(player)).toBe(12);
+    expect(app.seatTimerDelay(player)).toBe('-8s');
+
+    app.snapshot.update((snapshot) => ({
+      ...snapshot!,
+      players: [{ ...snapshot!.players[0], is_connected: false, disconnect_seconds_left: 8 }]
+    }));
+    expect(app.seatTimerType(app.currentPlayer!)).toBe('disconnect');
+    expect(app.seatTimerSeconds(app.currentPlayer!)).toBe(8);
+    expect(app.seatTimerDelay(app.currentPlayer!)).toBe('-12s');
+  });
+
+  it('should send the selected blind-entry choice and wait for a server snapshot', () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    TestBed.inject(UserSessionStore).setVerifiedMember('player-1', 'Player', 'PLAYER');
+    app.tableId = 'table-1';
+    app.snapshot.set({
+      table_id: 'table-1',
+      table_name: 'Test Table',
+      game_id: 'no_limit_texas_holdem',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: null,
+      is_hand_running: false,
+      street: null,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: null,
+      players: [{
+        seat: 0,
+        user_id: 'player-1',
+        username: 'Player',
+        stack: 500,
+        status: 'awaiting_blind_choice',
+        hole_cards: [],
+        in_hand: false,
+        blind_decision_pending: true,
+        blind_amount_to_post: 4
+      }]
+    });
+    app.socketStatus.set('connected');
+    const sentMessages: string[] = [];
+    (app as any).socket = {
+      readyState: WebSocket.OPEN,
+      send: (data: string) => sentMessages.push(data),
+      close: () => undefined
+    };
+
+    expect(app.currentTableRules?.displayName).toBe('No-Limit Hold’em Ring');
+    expect(app.canChooseBlindEntry).toBeTrue();
+    app.sendBlindEntryDecision('POST_BLIND');
+
+    const decisionMessage = JSON.parse(sentMessages[0]);
+    expect(decisionMessage.event).toBe('BLIND_DECISION');
+    expect(decisionMessage.payload.decision).toBe('POST_BLIND');
+    expect(decisionMessage.correlation_id).toBeTruthy();
+    expect(app.currentPlayer?.blind_decision_pending).toBeTrue();
+    expect(app.blindDecisionPending()).toBeTrue();
+
+    (app as any).handleSocketMessage(JSON.stringify({
+      event: 'TABLE_SNAPSHOT',
+      payload: {
+        table_id: 'table-1',
+        game_id: 'no_limit_texas_holdem',
+        players: [{
+          seat: 0,
+          user_id: 'player-1',
+          username: 'Player',
+          stack: 496,
+          status: 'active',
+          hole_cards: [],
+          in_hand: false,
+          blind_decision_pending: false
+        }]
+      }
+    }));
+
+    expect(app.canChooseBlindEntry).toBeFalse();
+    expect(app.blindDecisionPending()).toBeFalse();
   });
 
   it('should require a fresh Firebase token before connecting to a table socket', async () => {
@@ -880,6 +1281,9 @@ describe('App', () => {
     });
     app.screen.set('table');
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.control-rail')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.menu-toggle')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.table-panel')).not.toBeNull();
 
     (fixture.nativeElement.querySelector('.replay-open-button') as HTMLButtonElement).click();
     fixture.detectChanges();
@@ -909,6 +1313,7 @@ describe('App', () => {
       originClubId: 'club-cebu',
       seatedCount: 2
     }]);
+
     session.setUnionAdmin('union-1', true);
     app.lobbyScope.set('union');
     fixture.detectChanges();
@@ -917,5 +1322,36 @@ describe('App', () => {
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['Club Tables', 'Union Tables']);
     expect(fixture.nativeElement.querySelector('.table-origin-tag')?.textContent).toContain('club-cebu');
     expect(fixture.nativeElement.querySelector('.lobby-section-heading')?.textContent).toContain('Create union table');
+  });
+
+  it('should keep the manager deal action on the table surface', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    TestBed.inject(UserSessionStore).setVerifiedMember('manager-1', 'Manager', 'MANAGER');
+    app.screen.set('table');
+    app.snapshot.set({
+      table_id: 'table-1',
+      table_name: 'Main',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: null,
+      is_hand_running: false,
+      street: null,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: null,
+      players: [
+        { seat: 0, user_id: 'manager-1', username: 'Manager', stack: 500, status: 'active', hole_cards: [], in_hand: false },
+        { seat: 1, user_id: 'player-1', username: 'Player', stack: 500, status: 'active', hole_cards: [], in_hand: false }
+      ]
+    } as any);
+    fixture.detectChanges();
+
+    const dealButton = fixture.nativeElement.querySelector('.deal-hand-button') as HTMLButtonElement;
+    expect(dealButton).not.toBeNull();
+    expect(dealButton.disabled).toBeFalse();
+    expect(fixture.nativeElement.querySelector('.control-rail')).toBeNull();
   });
 });

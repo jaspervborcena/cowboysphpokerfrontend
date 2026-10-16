@@ -155,7 +155,7 @@
             <div class="table-card-stats"><span><small>BLINDS</small><b>{{ table.stakes }}</b></span><span><small>BUY-IN</small><b>{{ table.buyIn }}</b></span><span><small>SEATS</small><b>{{ table.players }}</b></span></div>
             <div class="lobby-table-actions">
               @if (table.localOnly) {
-                <button type="button" disabled title="Backend table service is not connected">Local preview</button>
+                <button type="button" (click)="openTable(table.id)">Enter table <span>↗</span></button>
               } @else {
                 <button type="button" (click)="openTable(table.id, lobbyScope() === 'union' ? selectedUnionId() : null)">Join table <span>↗</span></button>
               }
@@ -167,9 +167,6 @@
         } @empty {
           <div class="lobby-empty-state">
             <p class="union-empty-note">{{ lobbyScope() === 'union' ? 'No shared tables are open in this union.' : 'No club tables are open.' }}</p>
-            @if (lobbyScope() === 'club' && canCreateClubTables()) {
-              <button class="empty-create-table-button" type="button" (click)="openClubTableWizard()">＋ Create first table</button>
-            }
           </div>
         }
       </div>
@@ -231,7 +228,7 @@
     @if (tableCreationStep() === 'template') {
       <div class="table-wizard-backdrop">
         <section class="table-wizard table-template-editor" role="dialog" aria-modal="true" aria-labelledby="template-title">
-          <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set('games')" aria-label="Back to game selection">‹‹</button><h2 id="template-title">{{ selectedClubGame() }}</h2><span aria-hidden="true">HD</span></header>
+          <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set('games')" aria-label="Back to game selection">‹‹</button><h2 id="template-title">{{ selectedGameDisplayName }}</h2><span aria-hidden="true">HD</span></header>
           <div class="table-mode-tabs" role="tablist" aria-label="Table mode">
             @for (mode of clubTableModes; track mode) {
               <button type="button" role="tab" [attr.aria-selected]="selectedClubTableMode() === mode" [class.selected]="selectedClubTableMode() === mode" (click)="selectedClubTableMode.set($any(mode))">{{ mode }}</button>
@@ -289,7 +286,6 @@
       (close)="closeReplay()" />
   } @else {
   <header class="topbar">
-    <button class="menu-toggle" type="button" (click)="toggleControls()" [attr.aria-expanded]="controlsOpen()" aria-label="Open table setup">☰</button>
     <button class="game-back" type="button" (click)="enterLobby()" aria-label="Back to club lobby">‹</button>
     <a class="brand" href="/" aria-label="Cowboys Poker home">
       <span class="brand-mark" aria-hidden="true">C♠</span>
@@ -310,74 +306,6 @@
   </header>
 
   <main class="workspace">
-    @if (controlsOpen()) {
-      <button class="drawer-scrim" type="button" aria-label="Close table setup" (click)="toggleControls()"></button>
-    }
-    <aside class="control-rail" [class.open]="controlsOpen()" [attr.inert]="controlsOpen() ? null : ''" [attr.role]="controlsOpen() ? 'dialog' : null" [attr.aria-modal]="controlsOpen() ? 'true' : null" aria-label="Table setup">
-      <div class="rail-heading">
-        <span class="eyebrow">TABLE CONTROL</span>
-        <h1>Set the game.</h1>
-        <button class="drawer-close" type="button" (click)="toggleControls()" aria-label="Close table setup">×</button>
-      </div>
-
-      <section class="control-section">
-        <div class="section-title"><span class="step-number">01</span><h2>Connection</h2></div>
-        <label class="field-label" for="apiBase">Backend URL</label>
-        <div class="input-with-action">
-          <input id="apiBase" name="apiBase" [(ngModel)]="apiBase" (change)="checkHealth()" autocomplete="url">
-          <button class="icon-button" type="button" (click)="checkHealth()" aria-label="Check backend connection" title="Check backend connection">↻</button>
-        </div>
-        <div class="split-fields">
-          <label><span class="field-label">Club ID</span><input name="clubId" [(ngModel)]="clubId"></label>
-          <label><span class="field-label">Table ID</span><input name="tableId" [(ngModel)]="tableId" placeholder="Select a table from the lobby"></label>
-        </div>
-      </section>
-
-      @if (canManageCurrentTable()) {
-      <form class="control-section" (ngSubmit)="createTable()">
-        <div class="section-title"><span class="step-number">02</span><h2>Game setup</h2></div>
-        <div class="split-fields">
-          <label><span class="field-label">Small blind</span><input type="number" min="1" name="smallBlind" [(ngModel)]="smallBlind" required></label>
-          <label><span class="field-label">Big blind</span><input type="number" min="1" name="bigBlind" [(ngModel)]="bigBlind" required></label>
-          <label><span class="field-label">Table size</span>
-            <select name="tableSize" [ngModel]="tableSize()" (ngModelChange)="tableSize.set($event)">@for (size of tableSizes; track size) { <option [ngValue]="size">{{ size }}-handed</option> }</select>
-          </label>
-          <label><span class="field-label">Buy-in min</span><input type="number" min="1" name="buyInMin" [(ngModel)]="buyInMin" required></label>
-          <label><span class="field-label">Buy-in max</span><input type="number" min="1" name="buyInMax" [(ngModel)]="buyInMax" required></label>
-        </div>
-        <button class="secondary-button full-width" type="submit" [disabled]="busy() !== ''">
-          {{ busy() === 'create' ? 'Creating table…' : 'Create table' }} <span aria-hidden="true">↗</span>
-        </button>
-      </form>
-      }
-
-      <form class="control-section" (ngSubmit)="seatPlayer()">
-        <div class="section-title"><span class="step-number">03</span><h2>Take a seat</h2></div>
-        <div class="split-fields">
-          <label><span class="field-label">Member ID</span><input name="userId" [ngModel]="userId" readonly></label>
-          <label><span class="field-label">Display name</span><input name="username" [ngModel]="username" readonly></label>
-          <label><span class="field-label">Seat number</span><input type="number" min="0" [max]="tableSize() - 1" name="seatIndex" [(ngModel)]="seatIndex" required></label>
-          <label><span class="field-label">Buy-in request</span><input type="number" min="1" name="buyInAmount" [(ngModel)]="buyInAmount" required></label>
-        </div>
-        <div class="button-row">
-          <button class="secondary-button" type="submit" [disabled]="busy() !== ''">{{ busy() === 'seat' ? 'Seating…' : 'Seat player' }}</button>
-          <button class="icon-button connect-button" type="button" (click)="connectTable()" [disabled]="socketStatus() === 'connecting'" aria-label="Connect to table" title="Connect to table">⤴</button>
-        </div>
-      </form>
-
-      @if (session.canManageTables()) {
-      <button class="start-button" type="button" (click)="startHand()" [disabled]="busy() !== '' || players.length < 2">
-        <span class="start-icon" aria-hidden="true">▶</span>
-        <span>{{ busy() === 'start' ? 'Dealing…' : 'Deal the hand' }}</span>
-        <span class="start-arrow" aria-hidden="true">↗</span>
-      </button>
-      }
-      @if (notice()) {
-        <p class="notice" role="status">{{ notice() }}</p>
-      }
-      <p class="dev-note">Development client · Caller-supplied IDs are not authenticated.</p>
-    </aside>
-
     <section class="table-panel" aria-label="Live poker table">
       <div class="table-toolbar">
         <div>
@@ -416,15 +344,20 @@
             @for (seat of tableSeatSlots; track seat.seat) {
               @if (seat.player) {
                 <article class="player-seat" [class.hero-seat]="seat.player.user_id === userId" [class.active-seat]="seat.player.seat === snapshot()?.active_turn_seat" [class.is-offline]="seat.player.is_connected === false" [class.is-sat-out]="seat.player.is_sat_out" [style.left.%]="seatPosition(seat.player.seat).x" [style.top.%]="seatPosition(seat.player.seat).y">
-                  <div class="seat-avatar">{{ seat.player.username.slice(0, 1).toUpperCase() }}</div>
+                  <div class="seat-avatar-wrap" [class.turn-timer]="seatTimerType(seat.player) === 'turn'" [class.disconnect-timer]="seatTimerType(seat.player) === 'disconnect'" [style.--timer-delay]="seatTimerDelay(seat.player)">
+                    <div class="seat-avatar">{{ seat.player.username.slice(0, 1).toUpperCase() }}</div>
+                    @if (seatTimerSeconds(seat.player) !== null) {
+                      <span class="seat-timer-count" [attr.aria-label]="(seatTimerType(seat.player) === 'turn' ? 'Action time remaining: ' : 'Reconnect time remaining: ') + seatTimerSeconds(seat.player) + ' seconds'">{{ seatTimerSeconds(seat.player) | number: '1.0-0' }}</span>
+                    }
+                  </div>
                   <div class="player-meta">
                     <strong>{{ seat.player.username }} @if (seat.player.user_id === userId) { <small>YOU</small> }</strong>
                     <span>{{ seat.player.stack | number }} chips</span>
                     @if (snapshot()?.is_union_table && seat.player.club_id) { <small class="seat-club-tag">{{ seat.player.club_id }}</small> }
                   </div>
                   @if (seat.player.seat === snapshot()?.active_turn_seat) { <span class="turn-marker">ACTING</span> }
-                  @if (seat.player.is_connected === false && seat.player.in_hand) {
-                    <div class="reconnect-badge"><span class="spinner"></span> Reconnecting... @if (seat.player.disconnect_seconds_left !== undefined) { {{ seat.player.disconnect_seconds_left }}s }</div>
+                  @if (seat.player.is_connected === false && seat.player.in_hand && !seat.player.is_sat_out) {
+                    <div class="reconnect-badge"><span class="spinner"></span> Reconnecting… @if (seat.player.disconnect_timeout_count !== undefined) { {{ seat.player.disconnect_timeout_count + 1 }} / 2 }</div>
                   }
                   @if (seat.player.is_sat_out) {
                     <div class="sat-out-overlay"><span>SITTING OUT</span></div>
@@ -455,13 +388,15 @@
       </div>
 
       <div class="action-bar">
-        @if (isCurrentPlayerSatOut && socketStatus() !== 'connected') {
-          <div class="sit-in-bar">
-            <p>You are currently sitting out and disconnected.</p>
-            <button type="button" class="btn-im-back" (click)="onImBack()" [disabled]="socketStatus() === 'connecting'">Reconnect</button>
-          </div>
+        @if (canChooseBlindEntry) {
+          <section class="blind-entry-choice" aria-labelledby="blind-entry-title">
+            <div><strong id="blind-entry-title">Join the blind rotation</strong><span>@if (currentPlayer?.blind_amount_to_post !== undefined) { Post {{ currentPlayer?.blind_amount_to_post | number }} chips now, or wait for your big blind. } @else { Post now or wait for your big blind. }</span></div>
+            <div class="blind-entry-actions">
+              <button type="button" class="post-blind-button" (click)="sendBlindEntryDecision('POST_BLIND')" [disabled]="socketStatus() !== 'connected' || blindDecisionPending()">{{ blindDecisionPending() ? 'Sending…' : 'Post blind' }}</button>
+              <button type="button" class="wait-blind-button" (click)="sendBlindEntryDecision('WAIT_FOR_BIG_BLIND')" [disabled]="socketStatus() !== 'connected' || blindDecisionPending()">Wait for big blind</button>
+            </div>
+          </section>
         }
-
         <div class="action-context">
           <span class="eyebrow">{{ isMyTurn ? 'YOUR ACTION' : 'TABLE ACTIONS' }}</span>
           <strong>{{ isMyTurn ? 'Make your move' : (snapshot()?.is_hand_running ? 'Waiting for the table' : 'Start a hand to play') }}</strong>
@@ -493,12 +428,52 @@
             <button class="call-action" type="button" (click)="sendAction('RAISE')" [disabled]="socketStatus() !== 'connected'">Raise</button>
           </div>
         }
+
+        <div class="table-quick-actions">
+          @if (session.canManageTables() && !snapshot()?.is_hand_running) {
+            <button type="button" class="deal-hand-button" (click)="startHand()" [disabled]="busy() !== '' || players.length < 2">{{ busy() === 'start' ? 'Dealing…' : 'Deal hand' }}</button>
+          }
+          @if (isCurrentPlayerSatOut) {
+            <button type="button" class="btn-im-back" (click)="onImBack()" [disabled]="sitInPending() || socketStatus() === 'connecting'">{{ sitInPending() ? 'Requesting…' : "I'm back" }}</button>
+          }
+          <button type="button" class="btn-chat" (click)="openTableChat()" aria-label="Open table chat" title="Table chat"><span aria-hidden="true">•••</span></button>
+        </div>
       </div>
       @if (!isMyTurn && snapshot()?.is_hand_running) {
         <p class="turn-hint">Actions are enabled for the current player only. The server validates every move.</p>
       }
     </section>
   </main>
+  @if (seatConfirmationOpen()) {
+    <div class="table-wizard-backdrop seat-confirm-backdrop" (click)="cancelSeatConfirmation()">
+      <section class="table-wizard seat-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="seat-confirm-title" (click)="$event.stopPropagation()">
+        <header class="table-wizard-header">
+          <span aria-hidden="true"></span>
+          <h2 id="seat-confirm-title">Buy-in</h2>
+          <button type="button" (click)="cancelSeatConfirmation()" aria-label="Cancel seat selection">×</button>
+        </header>
+        <form class="seat-confirm-form" (ngSubmit)="seatPlayer()">
+          <p class="seat-confirm-game">{{ currentTableRules?.displayName ?? snapshotGameDisplayName }} · Seat {{ seatIndex + 1 }}</p>
+          <label class="seat-buy-in-field">Buy-in amount
+            <input type="number" name="seatBuyInAmount" [min]="buyInMin" [max]="buyInMax" step="1" [(ngModel)]="buyInAmount" required>
+          </label>
+          <p class="seat-buy-in-range">Allowed: {{ buyInMin | number }}–{{ buyInMax | number }} CLUB_CHIPS</p>
+          @if (walletBalanceLoading()) {
+            <p class="seat-wallet-status" role="status">Checking available balance…</p>
+          } @else if (walletBalanceError() || availableWalletBalance() === null) {
+            <p class="seat-wallet-status seat-wallet-error" role="alert">Available balance could not be verified. Seating is disabled.</p>
+          } @else {
+            <p class="seat-wallet-status" role="status">Chips balance: {{ availableWalletBalance() | number }}</p>
+          }
+          @if (notice()) { <p class="seat-confirm-notice" role="alert">{{ notice() }}</p> }
+          <div class="seat-confirm-actions">
+            <button type="button" class="seat-cancel-button" (click)="cancelSeatConfirmation()" [disabled]="busy() !== ''">Cancel</button>
+            <button type="submit" class="seat-submit-button" [disabled]="busy() !== '' || !canSeatWithWallet">{{ busy() === 'seat-check' ? 'Checking funds…' : busy() === 'seat' ? 'Seating…' : 'Buy-in' }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  }
   }
   @if (rolesOpen()) {
     <div class="role-sheet-backdrop" (click)="closeRoleGuide()">
