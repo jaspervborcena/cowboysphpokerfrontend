@@ -92,6 +92,39 @@ describe('App', () => {
     expect(compiled.querySelector('.app-content')?.hasAttribute('inert')).toBeTrue();
   });
 
+  it('should open the mock wallet dashboard from the home wallet control', () => {
+    const fixture = TestBed.createComponent(App);
+    const http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector('[aria-label="Open mock wallet dashboard"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#wallet-dashboard-title')?.textContent).toContain('Sample wallet');
+
+    http.expectOne('/ui-mocks/wallet-dashboard.json').flush({
+      mock_only: true,
+      viewer: { user_id: 'user-agent-player-a', username: 'Alex', club_id: 'club-demo', roles: ['AGENT', 'PLAYER'] },
+      global_wallet: {
+        wallet_id: 'global-wallet-user-agent-player-a',
+        wallet_type: 'GLOBAL_PLAYMONEY',
+        currency_type: 'GLOBAL_PLAYMONEY',
+        balance: 250000,
+        updated_at: '2026-10-16T08:00:00Z'
+      },
+      club_wallets: [],
+      table_stacks: [],
+      recent_transactions: []
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('#wallet-dashboard-title')?.textContent).toContain('Alex');
+    expect(fixture.nativeElement.querySelector('.wallet-mock-warning')?.textContent).toContain('No live wallet data');
+    expect(fixture.nativeElement.querySelector('.wallet-account-summary strong')?.textContent).toContain('250,000');
+    (fixture.nativeElement.querySelector('[aria-label="Close wallet dashboard"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.wallet-dashboard')).toBeNull();
+  });
+
   it('should hide the sign-in gate and enable app content after authentication', () => {
     const fixture = TestBed.createComponent(App);
     const session = TestBed.inject(UserSessionStore);

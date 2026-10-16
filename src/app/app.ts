@@ -10,6 +10,7 @@ import { TableActionPayload, TableSocketErrorPayload, TableWebSocketEnvelope } f
 import { AppRuntimeConfig } from './core/runtime-config';
 import { UserSessionStore } from './core/user-session.store';
 import { HandReplayContainerComponent } from './features/hand-replay/hand-replay-container.component';
+import { WalletDashboardComponent } from './features/wallet-dashboard/wallet-dashboard.component';
 import tableCreationDefaults from './data/table-creation-defaults.json';
 
 type PokerPlayer = {
@@ -86,7 +87,7 @@ const emptyGameCatalog: GameCatalogResponse = {
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, DecimalPipe, HandReplayContainerComponent],
+  imports: [FormsModule, DecimalPipe, HandReplayContainerComponent, WalletDashboardComponent],
   templateUrl: './table.html'
 })
 export class App implements OnInit, OnDestroy {
@@ -99,6 +100,8 @@ export class App implements OnInit, OnDestroy {
   tableUnionId = signal<string | null>(null);
   unionCreateOpen = signal(false);
   lobbyQuickMenuOpen = signal(false);
+  walletOpen = signal(false);
+  walletInitialScope = signal<'global' | 'club'>('global');
   tableCreationStep = signal<'games' | 'settings' | 'template' | null>(null);
   selectedClubGame = signal<string>('');
   gameCatalog = signal<GameCatalogResponse>(emptyGameCatalog);
@@ -453,6 +456,15 @@ export class App implements OnInit, OnDestroy {
 
   toggleControls(): void {
     this.controlsOpen.update((open) => !open);
+  }
+
+  openWallet(scope: 'global' | 'club'): void {
+    this.walletInitialScope.set(scope);
+    this.walletOpen.set(true);
+  }
+
+  closeWallet(): void {
+    this.walletOpen.set(false);
   }
 
   toggleHomeMenu(): void {

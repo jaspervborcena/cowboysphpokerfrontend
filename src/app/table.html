@@ -4,7 +4,7 @@
     <header class="member-topbar">
       <div class="member-avatar">{{ username.slice(0, 1).toUpperCase() }}</div>
       <div class="member-identity"><strong>{{ username }}</strong><span>ID: {{ userId }}</span><small>{{ session.membershipStatus() === 'verified' ? session.role() : session.membershipStatus() === 'not-a-member' ? 'GLOBAL PLAYER' : 'PLAYER' }}</small></div>
-      <div class="member-wallet"><span>♢</span><div><small>CLUB CHIPS</small><strong>{{ currentPlayer ? (currentPlayer.stack | number) : '—' }}</strong></div><button type="button" aria-label="Open club lobby" (click)="enterLobby()">+</button></div>
+      <button class="member-wallet" type="button" aria-label="Open mock wallet dashboard" (click)="openWallet('global')"><span>♢</span><div><small>GLOBAL PLAYMONEY · MOCK</small><strong>Wallets</strong></div><span class="wallet-open-mark" aria-hidden="true">↗</span></button>
       <button class="member-session-signout" type="button" aria-label="Sign out" title="Sign out" (click)="signOutCurrentUser()">↪</button>
       <button class="member-menu" type="button" (click)="toggleControls()" aria-label="Open member controls">☰</button>
     </header>
@@ -83,7 +83,7 @@
       <button class="lobby-back" type="button" (click)="goHome()" aria-label="Back to clubhouse">‹</button>
       <div class="lobby-club-mark">♛</div>
       <div class="lobby-club-name"><strong>{{ activeClubName }}</strong><span>{{ activeClubRole === 'OWNER' && activeClubDisplayId.startsWith('local-club-') ? 'LOCAL CLUB' : 'ID: ' + activeClubDisplayId }} · {{ activeClubRole }}</span></div>
-      <div class="lobby-wallet"><span>♢</span><strong>{{ currentPlayer ? (currentPlayer.stack | number) : '—' }}</strong></div>
+      <button class="lobby-wallet" type="button" aria-label="Open mock club wallets" (click)="openWallet('club')"><span>♢</span><span>CLUB WALLETS · MOCK</span></button>
       <button class="lobby-search" type="button" aria-label="Search tables">⌕</button>
     </header>
     <main class="lobby-screen">
@@ -545,6 +545,9 @@
         </form>
       </section>
     </div>
+  }
+  @if (walletOpen()) {
+    <app-wallet-dashboard [initialScope]="walletInitialScope()" (close)="closeWallet()" />
   }
   </div>
   @if (!isAuthenticated) {

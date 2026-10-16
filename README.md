@@ -20,8 +20,15 @@ The Angular client implements clubhouse, lobby, live-table, union-table, and han
 - Live-table sockets use WebSocket protocol v1 envelopes, force-refresh Firebase tokens for each connection, answer `PING`, and reconnect with a new full server snapshot. Player actions include `action_id`; pre-actions use `PRE_ACTION` and are displayed from the player's snapshot. The client does not locally resolve turns or change seat/connectivity state after disconnects.
 - Live club tables are membership-gated and show actual empty/error results rather than demo rows. Mock Club and Global Room cards open isolated preview lobbies; only the configured club connects to backend data, and global play/invitation-based club switching are not connected.
 - Server-provided disconnect and sit-out state only. Disconnect protection, timers, and actions remain backend-authoritative.
+- A fixture-backed wallet dashboard at [public/ui-mocks/wallet-dashboard.json](public/ui-mocks/wallet-dashboard.json), labeled mock-only and keeping global, treasury, agent, player, and table-stack balances separate. It is not connected to live wallet APIs or Firestore.
 
 This is not yet a production-ready end-to-end client. The API and websocket backend must implement and enforce the contracts below. Home-screen club cards are mock previews; the live lobby does not substitute sample rows when table data is empty or unavailable.
+
+## Done and still to do
+
+The frontend currently covers authentication flows, membership-gated club and union lobbies, table setup and seating requests, the v1 live-table socket protocol, hand replay, and a mock-only wallet dashboard. These are frontend implementations; they do not confirm that the configured backend supports every contract or that production authorization is enforced.
+
+The main remaining work is backend and integration: implement and verify phone sign-in/reset routes, authoritative authorization and disconnect handling, durable table and wallet ledgers, the remaining seat and club-invitation workflows, and end-to-end tests against the intended services. The detailed prioritized checklist is in [todo.md](todo.md).
 
 ## Table creation defaults
 
@@ -75,6 +82,22 @@ The current navigation rule is intentional:
 - `AGENT`, `MANAGER`, and `OWNER` can access the member menu for shop, message, MTT, career, and roles; MTT is disabled until tournament endpoints exist
 
 These checks are currently UI-level only. They are not security controls. The backend must re-validate identity and role on every REST and WebSocket endpoint before allowing privileged actions.
+
+## Wallet Dashboard (Mock Only)
+
+The frontend dashboard is implemented using the fixture at [public/ui-mocks/wallet-dashboard.json](public/ui-mocks/wallet-dashboard.json). It is labeled `mock_only: true`, is not an API response, and does not read wallet documents from Firestore. Keep it clearly separated from live data until authenticated wallet APIs and permissions are defined.
+
+The sample viewer is Alex (`user-agent-player-a`) with both `AGENT` and `PLAYER` roles in `club-demo`. It has 250,000 `GLOBAL_PLAYMONEY`, 300,000 in the club treasury, 48,000 in the agent account, and a player account with 14,600 available plus 1,200 in play. The listed `Main Table` stack is 1,200 and is already included in the player's `in_play_balance`. Recent mock transactions use `transaction_id` values and are marked `mock_only` with the dashboard.
+
+Keep each wallet scope separate:
+
+- `GLOBAL_PLAYMONEY`: platform play chips for the landing/global-play surface only. Do not display or convert club balances here.
+- `CLUB_PLAYER`: show `available_balance` separately from `in_play_balance`. The latter already includes the table stacks listed for the player.
+- `CLUB_AGENT`: show the agent operating balance, assigned downline, and transfer history in an agent-only surface.
+- `CLUB_TREASURY`: show the club reserve and authorized inter-club transfer history in owner/manager tools.
+- `TABLE_ESCROW` / table stack: display the player's stack for that table, but never treat it as another spendable wallet or add it to available balance.
+
+A member can hold both `AGENT` and `PLAYER` roles in the same club. Keep their `CLUB_AGENT` and `CLUB_PLAYER` accounts and views distinct; never aggregate balances across wallet types or currency types. The persistent global wallet and separate agent/player wallet APIs are not implemented, so all planned wallet surfaces remain mock-only until backend models, endpoints, and permissions are defined.
 
 ## Backend contract and known gaps
 

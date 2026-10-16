@@ -1,0 +1,83 @@
+<div class="wallet-dashboard-backdrop" (click)="close.emit()">
+  <section class="wallet-dashboard" role="dialog" aria-modal="true" aria-labelledby="wallet-dashboard-title" (click)="$event.stopPropagation()">
+    <header class="wallet-dashboard-header">
+      <div>
+        <span class="wallet-dashboard-kicker">WALLET DASHBOARD · MOCK ONLY</span>
+        <h2 id="wallet-dashboard-title">{{ dashboard()?.viewer?.username ?? 'Sample wallet' }}</h2>
+        @if (dashboard(); as walletData) {
+          <p>{{ walletData.viewer.club_id }} · {{ walletData.viewer.roles.join(' / ') }}</p>
+        }
+      </div>
+      <button type="button" class="wallet-dashboard-close" aria-label="Close wallet dashboard" (click)="close.emit()">×</button>
+    </header>
+
+    @if (loading()) {
+      <p class="wallet-dashboard-state" role="status">Loading local wallet fixture…</p>
+    } @else if (loadError()) {
+      <p class="wallet-dashboard-state wallet-dashboard-error" role="alert">The local wallet fixture could not be loaded.</p>
+    } @else if (dashboard(); as walletData) {
+      <p class="wallet-mock-warning">Sample values only. No live wallet data or Firestore reads.</p>
+      <div class="wallet-scope-tabs" role="tablist" aria-label="Wallet scope">
+        <button type="button" role="tab" [attr.aria-selected]="activeScope() === 'global'" [class.selected]="activeScope() === 'global'" (click)="activeScope.set('global')">Global playmoney</button>
+        <button type="button" role="tab" [attr.aria-selected]="activeScope() === 'club'" [class.selected]="activeScope() === 'club'" (click)="activeScope.set('club')">Club wallets</button>
+      </div>
+
+      @if (activeScope() === 'global') {
+        <section class="wallet-account-summary" aria-label="Global playmoney wallet">
+          <span class="wallet-account-type">GLOBAL_PLAYMONEY</span>
+          <strong>{{ walletData.global_wallet.balance | number }}</strong>
+          <span>{{ walletData.global_wallet.currency_type }} · Updated {{ walletData.global_wallet.updated_at }}</span>
+        </section>
+      } @else {
+        @if (availableClubWallets.length > 0) {
+          <div class="wallet-account-tabs" role="tablist" aria-label="Club wallet type">
+            @for (wallet of availableClubWallets; track wallet.wallet_id) {
+              <button type="button" role="tab" [attr.aria-selected]="selectedClubWalletType() === wallet.wallet_type" [class.selected]="selectedClubWalletType() === wallet.wallet_type" (click)="selectedClubWalletType.set(wallet.wallet_type)">{{ walletLabel(wallet.wallet_type) }}</button>
+            }
+          </div>
+          @if (selectedClubWallet; as wallet) {
+            <section class="wallet-account-summary" [attr.aria-label]="walletLabel(wallet.wallet_type) + ' account'">
+              <span class="wallet-account-type">{{ wallet.wallet_type }}</span>
+              @if (wallet.wallet_type === 'CLUB_PLAYER') {
+                <div class="wallet-balance-pair">
+                  <div><small>AVAILABLE</small><strong>{{ wallet.available_balance | number }}</strong></div>
+                  <div><small>IN PLAY</small><strong>{{ wallet.in_play_balance | number }}</strong></div>
+                </div>
+                <span>{{ wallet.currency_type }} · Updated {{ wallet.updated_at }}</span>
+                <p class="wallet-balance-note">In-play includes the table stacks below. It is not additional spendable balance.</p>
+              } @else {
+                <strong>{{ wallet.balance | number }}</strong>
+                <span>{{ wallet.currency_type }} · Updated {{ wallet.updated_at }}</span>
+              }
+            </section>
+          }
+          @if (selectedTableStacks.length > 0) {
+            <section class="wallet-detail-section" aria-labelledby="wallet-table-stacks-title">
+              <div class="wallet-section-heading"><h3 id="wallet-table-stacks-title">Table stacks</h3><span>NOT SPENDABLE TWICE</span></div>
+              @for (stack of selectedTableStacks; track stack.table_id) {
+                <article class="wallet-detail-row">
+                  <div><strong>{{ stack.table_name }}</strong><small>{{ stack.table_id }} · Seat {{ stack.seat_index + 1 }} · {{ stack.status }}</small></div>
+                  <strong>{{ stack.stack | number }} <small>{{ stack.currency_type }}</small></strong>
+                </article>
+              }
+            </section>
+          }
+        } @else {
+          <p class="wallet-dashboard-state">No club-wallet view is available for the sample viewer's roles.</p>
+        }
+      }
+
+      <section class="wallet-detail-section" aria-labelledby="wallet-transactions-title">
+        <div class="wallet-section-heading"><h3 id="wallet-transactions-title">Recent transactions</h3><span>MOCK HISTORY</span></div>
+        @for (transaction of visibleTransactions; track transaction.transaction_id) {
+          <article class="wallet-detail-row">
+            <div><strong>{{ transactionLabel(transaction) }}</strong><small>{{ transaction.transaction_id }} · {{ transaction.created_at }}</small></div>
+            <strong [class.wallet-credit]="transaction.direction === 'credit'" [class.wallet-debit]="transaction.direction === 'debit'">{{ transaction.direction === 'credit' ? '+' : '−' }}{{ transaction.amount | number }}</strong>
+          </article>
+        } @empty {
+          <p class="wallet-dashboard-state">No transactions for this wallet.</p>
+        }
+      </section>
+    }
+  </section>
+</div>

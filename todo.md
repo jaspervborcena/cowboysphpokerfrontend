@@ -27,6 +27,7 @@ Close the frontend/backend contract gaps and complete a real authenticated membe
 - Disconnects do not change local connectivity, sit-out, or action state. Reconnect displays only server-supplied state; unsupported sit-in actions and fabricated client countdowns are removed.
 - Unit coverage includes the game catalog, create request fields, action IDs, correlation IDs, `PING`/`PONG`, snapshot capacity mapping, token refresh, and non-idempotent retry prevention.
 - Unit tests for role gating, API request shape, table UI, and replay behavior.
+- The fixture-backed wallet dashboard is implemented at `public/ui-mocks/wallet-dashboard.json` and covered by frontend tests. It is explicitly mock-only; global, treasury, agent, player, and table-stack values stay separate, and table stacks are not double-counted in player balances. Live wallet APIs remain unimplemented.
 
 ## Backend capabilities described in the supplied API docs
 
@@ -34,13 +35,16 @@ These are documented by the backend contract attachment, but have not been indep
 
 - Firebase ID-token verification and active club/union membership checks, including role-gated table and wallet routes.
 - Local and union table create/list/seat/start flows, buy-in idempotency, authenticated sockets, per-player card masking, and replay.
-- Club wallet send-out/claim-back, treasury transfers, platform club provisioning, and Firestore hand settlement.
+- Earlier supplied API notes mentioned club transfers and treasury operations, but the latest UI guide says wallet APIs and separate persistent `CLUB_AGENT` / `CLUB_PLAYER` accounts do not exist yet. Treat wallet endpoints and account semantics as unverified until the backend contract is reconciled; the provided dashboard remains mock-only and must not be read from Firestore.
 - Server turn timeout that checks when possible and folds when facing a bet.
 - The docs explicitly say there are no sit-out, leave-seat, top-up, cash-out, union formation/invitation, or global-wallet routes; live table state is in process memory.
 
 ## P0: Resolve contract blockers
 
 - [ ] **Backend:** Implement and document phone sign-in and reset endpoints. Validate phone/password, rate-limit failures, issue Firebase custom tokens, and enforce OTP expiry, single use, attempt limits, and password policy. The frontend recovery screens and requests are wired, but these routes are not in the supplied backend API contract.
+- [ ] **Wallet decision:** Decide whether the one-time 10,000 `CLUB_CHIPS` club-creation grant belongs only to `CLUB_TREASURY` or also to the owner's separate `CLUB_PLAYER` wallet. Define behavior for existing clubs and an idempotency key/audit record so migration or retries cannot grant twice.
+- [ ] **Wallet decision:** Define the one-time 20,000 `GLOBAL_PLAYMONEY` grant for newly created Firebase accounts, including an idempotent backfill rule for accounts that already exist when provisioning is deployed.
+- [ ] **Table-close contract:** Choose the club timezone and exact close-boundary behavior. Define each table's assigned `scheduled_close_at` (including variable lifetimes such as 6 or 24 hours), distinguish it from actual `closed_at`, and specify how the weekly settlement cutoff acts as an additional boundary.
 - [x] **Contract:** Use `table_size` for local and union table create/list flows; the frontend sends it and temporarily reads `max_seats` as a compatibility fallback.
 - [x] **Contract:** Include `game_id` in table summaries and expose `/games` fields `active_game_id`, `display_name`, and `create_supported`; the frontend resolves labels through the catalog and does not infer NLH when the ID is absent.
 - [ ] **Backend + contract:** Build and test the game-variant engine/adapters, then define API fields for table name, game variants, SNG/MTT modes, and all fields in `src/app/data/table-creation-defaults.json` before sending those settings for server-created tables.
@@ -58,12 +62,22 @@ These are documented by the backend contract attachment, but have not been indep
 - [x] **Frontend/contract:** Remove the unsupported `SIT_IN` action from “I'm Back” or add a server sit-in route/message and document its rules. Do not optimistically mark the player seated/connected as if it were accepted.
 - [x] **Frontend:** Fetch a fresh Firebase ID token for each new socket and implement reconnect/resync with a new socket and fresh snapshot. Do not claim a disconnected action succeeded when it could not be sent.
 - [ ] **Backend:** Add disconnect-specific grace period, auto-sit-out, reconnect, and seat-state policy. The documented turn timeout does not by itself provide disconnect protection.
-- [ ] **Frontend:** Add request methods and UI for the club wallet endpoints: balance, send-out, claim-back, treasury read, and treasury transfer; cover `transaction_id` idempotency and role-specific downline rules. The workspace docs do not include the endpoint paths or request/response schemas, so this needs the exact API contract before implementation.
+- [x] **Frontend mock:** Build the fixture-backed wallet dashboard at `public/ui-mocks/wallet-dashboard.json` with `mock_only: true`. Keep `GLOBAL_PLAYMONEY`, `CLUB_TREASURY`, `CLUB_AGENT`, `CLUB_PLAYER`, and table stacks distinct; the sample's 1,200 stack is already included in its 1,200 `in_play_balance`. Do not connect to Firestore or represent mock balances as live.
+- [ ] **Backend + frontend:** Replace wallet fixtures with authenticated APIs only after wallet account models, endpoint schemas, role/downline permissions, and `transaction_id` idempotency rules are documented. The persistent global wallet and separate agent/player accounts are not implemented; never read wallet documents directly from Firestore.
 - [x] **Frontend:** Show home-club IDs provided by union snapshots and map server table sizes from 2 through 9 to the seat layout.
 
 ## P2: Complete money and operations workflows
 
+- [ ] **Backend:** Define Firestore wallet accounts for `GLOBAL_PLAYMONEY`, `CLUB_TREASURY`, `CLUB_AGENT`, `CLUB_PLAYER`, and table escrow with explicit owner, club/table scope, and currency type.
+- [ ] **Backend:** Support one Firebase identity holding both `AGENT` and `PLAYER` roles in a club with separate agent-operating and personal-player wallets/ledgers. Define role grants, transfer boundaries, audit rules, and idempotency; never merge wallet balances.
+- [ ] **Backend:** Provision a persistent `GLOBAL_PLAYMONEY` wallet and grant exactly 20,000 chips once on new account creation, using the P0 migration/idempotency rule and keeping it separate from club accounts.
+- [ ] **Backend:** Provision the P0-decided 10,000 `CLUB_CHIPS` grant on club creation. Keep the treasury/member-wallet destination consistent with the decision and record auditable idempotent ledger entries.
+- [ ] **Backend:** Specify double-entry movements for treasury-to-agent funding, agent-to-player distribution/claim-back, player buy-in to table escrow, hand settlement, and cash-out. Commit ledger entries and cached balances atomically and idempotently.
+- [ ] **Backend + frontend:** Define authorized UI-facing wallet summary/history APIs before replacing current balance fields. Specify role/downline access and `transaction_id` idempotency; keep all wallet data fixture-backed until these contracts exist.
 - [ ] **Backend + frontend:** Implement leave-seat, top-up/rebuy, cash-out, sit-out/sit-in, and reconciliation flows with idempotent ledger operations.
+- [ ] **Contract:** Include `scheduled_close_at` and table lifetime configuration in the appropriate table API; treat weekly settlement cutoff as an additional close boundary, not the sole expiration schedule.
+- [ ] **Backend:** Implement an idempotent table-expiration worker that stops new hands, defines handling for in-progress hands, settles or explicitly carries every seated stack, releases seats safely, and preserves hand/ledger audit history. Never delete live seats or reset balances without accounting for in-play chips.
+- [ ] **Integration:** Test timezone/cutoff boundaries, scheduled-close boundaries, delayed and retried expiration jobs, active-hand policy, stack settlement/carry-forward, and service recovery after a missed cutoff.
 - [ ] **Backend:** Add durable single-writer live table state and restart recovery before multi-instance deployment; session affinity alone is insufficient.
 - [ ] **Backend + frontend:** Complete club invitation/acceptance and union creation/invitation flows. Accepting a club invite creates or activates club membership for an existing global account; define union fee/rake allocation and remaining BBJ/promotion payout rules.
 - [x] **Frontend:** Handle the documented numeric error codes, retain `trace_id`, refresh Firebase and retry only safe reads or requests with idempotency IDs, and refresh membership after `40301`.
@@ -75,5 +89,5 @@ These are documented by the backend contract attachment, but have not been indep
 - Phone/password login works through the backend-issued Firebase custom token, and account recovery uses a separate OTP flow.
 - Empty/loading/error states reflect actual API responses; server balance is authoritative for buy-in.
 - WebSocket pre-actions and reconnect behavior match the documented protocol; disconnect/sit-out outcomes come from the server.
-- Documented wallet operations are accessible to the correct roles, while server-side role checks remain authoritative.
+- Wallet balances remain mock-only until authenticated summary/history APIs and account permissions are defined; never read wallet documents directly from Firestore. Once live wallet APIs exist, expose them only to authorized roles, with server-side checks remaining authoritative.
 - Frontend/backend integration tests pass for the real contract, including idempotent financial operations.
