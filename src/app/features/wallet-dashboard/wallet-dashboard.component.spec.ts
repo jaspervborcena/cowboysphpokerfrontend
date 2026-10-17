@@ -16,8 +16,26 @@ const mockDashboard: WalletDashboard = {
     wallet_id: 'global-wallet-user-agent-player-a',
     wallet_type: 'GLOBAL_PLAYMONEY',
     currency_type: 'GLOBAL_PLAYMONEY',
-    balance: 250000,
+    balance: 20000,
     updated_at: '2026-10-16T08:00:00Z'
+  },
+  onboarding_preview: {
+    account_creation_grant: {
+      wallet_type: 'GLOBAL_PLAYMONEY',
+      currency_type: 'GLOBAL_PLAYMONEY',
+      amount: 20000,
+      status: 'mock_only',
+      trigger: 'firebase_account_created',
+      api_available: false
+    },
+    club_creation_grant: {
+      wallet_type: 'CLUB_TREASURY',
+      currency_type: 'CLUB_CHIPS',
+      amount: 10000,
+      status: 'live',
+      endpoint: 'POST /platform/clubs',
+      owner_personal_balance_after_creation: 0
+    }
   },
   club_wallets: [
     {
@@ -85,12 +103,23 @@ const mockDashboard: WalletDashboard = {
       wallet_type: 'GLOBAL_PLAYMONEY',
       club_id: null,
       type: 'PLAYMONEY_GRANT',
-      amount: 250000,
+      amount: 20000,
       direction: 'credit',
       status: 'completed',
       created_at: '2026-10-16T08:00:00Z'
     }
-  ]
+  ],
+  cashout_requests: [{
+    request_id: 'mock-cashout-request-001',
+    wallet_type: 'CLUB_PLAYER',
+    club_id: 'club-demo',
+    user_id: 'user-agent-player-a',
+    amount: 600,
+    status: 'pending_mock',
+    player_request_api_available: false,
+    operator_fulfillment_endpoint: 'POST /clubs/{club_id}/wallet/claim-back',
+    blocked_while_in_play_balance_nonzero: true
+  }]
 };
 
 describe('WalletDashboardComponent', () => {
@@ -123,7 +152,7 @@ describe('WalletDashboardComponent', () => {
 
     const component = fixture.componentInstance;
     expect(component.activeScope()).toBe('global');
-    expect(component.dashboard()?.global_wallet.balance).toBe(250000);
+    expect(component.dashboard()?.global_wallet.balance).toBe(20000);
     expect(component.visibleTransactions.map((transaction) => transaction.wallet_type)).toEqual(['GLOBAL_PLAYMONEY']);
     expect(component.selectedTableStacks).toEqual([]);
 
@@ -131,5 +160,37 @@ describe('WalletDashboardComponent', () => {
     component.selectedClubWalletType.set('CLUB_PLAYER');
     expect(component.selectedTableStacks.reduce((total, stack) => total + stack.stack, 0)).toBe(1200);
     expect(component.selectedClubWallet?.in_play_balance).toBe(1200);
+  });
+
+  it('creates a pending mock cash-out request without changing wallet balances', () => {
+    const fixture = TestBed.createComponent(WalletDashboardComponent);
+    fixture.componentInstance.initialScope = 'club';
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance;
+    component.cashoutAmount.set(600);
+    const availableBefore = component.selectedClubWallet?.available_balance;
+    const inPlayBefore = component.selectedClubWallet?.in_play_balance;
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector('.wallet-cashout-submit') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(component.cashoutRequestsForViewer.length).toBe(2);
+    expect(component.cashoutRequestsForViewer[0].status).toBe('pending_mock');
+    expect(component.cashoutRequestsForViewer[0].blocked_while_in_play_balance_nonzero).toBeTrue();
+    expect(component.selectedClubWallet?.available_balance).toBe(availableBefore);
+    expect(component.selectedClubWallet?.in_play_balance).toBe(inPlayBefore);
+    expect(fixture.nativeElement.textContent).toContain('No wallet balance was changed');
+  });
+
+  it('shows the documented onboarding grant amounts and API availability', () => {
+    const fixture = TestBed.createComponent(WalletDashboardComponent);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('20,000');
+    expect(fixture.nativeElement.textContent).toContain('API unavailable');
+    expect(fixture.nativeElement.textContent).toContain('POST /platform/clubs');
+    expect(fixture.nativeElement.textContent).toContain('owner personal balance starts at 0');
   });
 });

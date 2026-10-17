@@ -17,6 +17,17 @@
       <p class="wallet-dashboard-state wallet-dashboard-error" role="alert">The local wallet fixture could not be loaded.</p>
     } @else if (dashboard(); as walletData) {
       <p class="wallet-mock-warning">Sample values only. No live wallet data or Firestore reads.</p>
+      <section class="wallet-detail-section wallet-onboarding" aria-labelledby="wallet-onboarding-title">
+        <div class="wallet-section-heading"><h3 id="wallet-onboarding-title">Onboarding funding</h3><span>CONTRACT PREVIEW</span></div>
+        <article class="wallet-detail-row">
+          <div><strong>New account playmoney</strong><small>After Firebase account creation · API unavailable</small></div>
+          <strong>{{ walletData.onboarding_preview.account_creation_grant.amount | number }} <small>MOCK ONLY</small></strong>
+        </article>
+        <article class="wallet-detail-row">
+          <div><strong>New club treasury</strong><small>{{ walletData.onboarding_preview.club_creation_grant.endpoint }} · owner personal balance starts at 0</small></div>
+          <strong>{{ walletData.onboarding_preview.club_creation_grant.amount | number }} <small>CLUB_CHIPS</small></strong>
+        </article>
+      </section>
       <div class="wallet-scope-tabs" role="tablist" aria-label="Wallet scope">
         <button type="button" role="tab" [attr.aria-selected]="activeScope() === 'global'" [class.selected]="activeScope() === 'global'" (click)="activeScope.set('global')">Global playmoney</button>
         <button type="button" role="tab" [attr.aria-selected]="activeScope() === 'club'" [class.selected]="activeScope() === 'club'" (click)="activeScope.set('club')">Club wallets</button>
@@ -48,6 +59,26 @@
               } @else {
                 <strong>{{ wallet.balance | number }}</strong>
                 <span>{{ wallet.currency_type }} · Updated {{ wallet.updated_at }}</span>
+              }
+            </section>
+          }
+          @if (selectedClubWalletType() === 'CLUB_PLAYER' && walletData.viewer.roles.includes('PLAYER')) {
+            <section class="wallet-detail-section wallet-cashout" aria-labelledby="wallet-cashout-title">
+              <div class="wallet-section-heading"><h3 id="wallet-cashout-title">Cash-out request</h3><span>MOCK ONLY</span></div>
+              <p class="wallet-dashboard-state">Players receive club chips through an authorized operator transfer. Requesting cash-out here does not change balances; an operator must fulfill it with claim-back.</p>
+              <label class="wallet-cashout-amount">Amount in CLUB_CHIPS
+                <input type="number" min="1" step="1" [value]="cashoutAmount()" (input)="setCashoutAmount($any($event.target).value)">
+              </label>
+              <button type="button" class="wallet-cashout-submit" (click)="requestMockCashout()">Request mock cash-out</button>
+              @if (cashoutNotice()) { <p class="wallet-dashboard-state" role="status">{{ cashoutNotice() }}</p> }
+              <p class="wallet-dashboard-state">Operator fulfillment: {{ walletData.cashout_requests[0]?.operator_fulfillment_endpoint }}. Claim-back is blocked while in-play balance is nonzero.</p>
+              @for (request of cashoutRequestsForViewer; track request.request_id) {
+                <article class="wallet-detail-row">
+                  <div><strong>Cash-out · {{ request.status }}</strong><small>{{ request.request_id }} · {{ request.player_request_api_available ? 'API available' : 'Player request API unavailable' }}</small></div>
+                  <strong>{{ request.amount | number }} <small>CLUB_CHIPS</small></strong>
+                </article>
+              } @empty {
+                <p class="wallet-dashboard-state">No mock cash-out requests.</p>
               }
             </section>
           }

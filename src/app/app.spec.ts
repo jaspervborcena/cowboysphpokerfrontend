@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { of } from 'rxjs';
 import { App } from './app';
 import { ClubApiService, GameCatalogResponse } from './core/club-api.service';
+import { FirebaseAuthService } from './core/firebase-auth.service';
 import { UserSessionStore } from './core/user-session.store';
 
 const testGameCatalog: GameCatalogResponse = {
@@ -24,6 +25,9 @@ describe('App', () => {
         provideHttpClientTesting(),
         { provide: ClubApiService, useValue: {
           getGames: () => of(testGameCatalog),
+          signInWithPhonePassword: () => of({ firebase_custom_token: '' }),
+          requestPhonePasswordReset: () => of({}),
+          confirmPhonePasswordReset: () => of({}),
           getMemberWalletSummary: () => of({
             club_id: 'demo',
             user_id: 'player-1',
@@ -44,6 +48,62 @@ describe('App', () => {
     const app = fixture.componentInstance;
     expect(app).toBeTruthy();
     expect(app.isMyTurn).toBeFalse();
+  });
+
+  it('normalizes phone sign-in and exchanges the backend token with Firebase', async () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const api = TestBed.inject(ClubApiService);
+    const firebaseAuth = TestBed.inject(FirebaseAuthService);
+    const signInSpy = spyOn(api, 'signInWithPhonePassword').and.returnValue(of({
+      firebase_custom_token: 'custom-token'
+    }));
+    const tokenSpy = spyOn(firebaseAuth, 'signInWithCustomToken').and.returnValue(Promise.resolve(true));
+    const finalizeSpy = spyOn<any>(app, 'finalizeSignedInUser').and.returnValue(Promise.resolve());
+    app.loginIdentifier.set('0912 345 6789');
+    app.loginPassword.set('correct-horse');
+
+    await app.continueWithIdentifier();
+
+    expect(signInSpy).toHaveBeenCalledWith(app.baseUrl(), '+639123456789', 'correct-horse');
+    expect(tokenSpy).toHaveBeenCalledWith('custom-token');
+    expect(finalizeSpy).toHaveBeenCalledWith('+639123456789');
+    expect(app.loginError()).toBe('');
+  });
+
+  it('requests phone reset with a generic confirmation and opens the OTP form', async () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const api = TestBed.inject(ClubApiService);
+    const resetRequestSpy = spyOn(api, 'requestPhonePasswordReset').and.returnValue(of({}));
+    app.authMode.set('forgot-password');
+    app.loginIdentifier.set('0917-123-4567');
+
+    await app.requestPasswordReset();
+
+    expect(resetRequestSpy).toHaveBeenCalledWith(app.baseUrl(), '+639171234567');
+    expect(app.authMode()).toBe('reset-phone');
+    expect(app.notice()).toContain('If an account matches that number');
+  });
+
+  it('confirms phone reset and clears the OTP and new password', async () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const api = TestBed.inject(ClubApiService);
+    const resetConfirmSpy = spyOn(api, 'confirmPhonePasswordReset').and.returnValue(of({ status: 'reset' }));
+    app.authMode.set('reset-phone');
+    app.loginIdentifier.set('+639171234567');
+    app.resetOtp.set(' 123456 ');
+    app.resetNewPassword.set('new-password');
+
+    await app.confirmPhonePasswordReset();
+
+    expect(resetConfirmSpy).toHaveBeenCalledWith(app.baseUrl(), {
+      phone_number: '+639171234567',
+      otp: '123456',
+      new_password: 'new-password'
+    });
+    expect(app.authMode()).toBe('sign-in');
+    expect(app.resetOtp()).toBe('');
+    expect(app.resetNewPassword()).toBe('');
+    expect(app.notice()).toContain('Password reset successfully');
   });
 
   it('should open a buy-in confirmation at the selected table minimum', () => {
@@ -315,18 +375,37 @@ describe('App', () => {
         wallet_id: 'global-wallet-user-agent-player-a',
         wallet_type: 'GLOBAL_PLAYMONEY',
         currency_type: 'GLOBAL_PLAYMONEY',
-        balance: 250000,
+        balance: 20000,
         updated_at: '2026-10-16T08:00:00Z'
+      },
+      onboarding_preview: {
+        account_creation_grant: {
+          wallet_type: 'GLOBAL_PLAYMONEY',
+          currency_type: 'GLOBAL_PLAYMONEY',
+          amount: 20000,
+          status: 'mock_only',
+          trigger: 'firebase_account_created',
+          api_available: false
+        },
+        club_creation_grant: {
+          wallet_type: 'CLUB_TREASURY',
+          currency_type: 'CLUB_CHIPS',
+          amount: 10000,
+          status: 'live',
+          endpoint: 'POST /platform/clubs',
+          owner_personal_balance_after_creation: 0
+        }
       },
       club_wallets: [],
       table_stacks: [],
-      recent_transactions: []
+      recent_transactions: [],
+      cashout_requests: []
     });
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('#wallet-dashboard-title')?.textContent).toContain('Alex');
     expect(fixture.nativeElement.querySelector('.wallet-mock-warning')?.textContent).toContain('No live wallet data');
-    expect(fixture.nativeElement.querySelector('.wallet-account-summary strong')?.textContent).toContain('250,000');
+    expect(fixture.nativeElement.querySelector('.wallet-account-summary strong')?.textContent).toContain('20,000');
     (fixture.nativeElement.querySelector('[aria-label="Close wallet dashboard"]') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.wallet-dashboard')).toBeNull();
@@ -427,15 +506,19 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.lobby-empty-state')?.textContent).toContain('No club tables are open');
   });
 
-  it('should use the horizontal shortcut bar as the only lobby navigation', () => {
+  it('should toggle the table layout from grid to list and back using the layout shortcut', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
     app.screen.set('lobby');
     fixture.detectChanges();
 
+    expect(fixture.nativeElement.querySelector('.table-list')?.classList.contains('list-view')).toBeFalse();
     expect(fixture.nativeElement.querySelector('.lobby-shortcuts')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('[aria-label="Union tables"]')).not.toBeNull();
     expect((fixture.nativeElement.querySelector('[aria-label="Create a new table"]') as HTMLButtonElement).disabled).toBeFalse();
+    let layoutToggle = fixture.nativeElement.querySelector('[aria-label="Switch to list view"]') as HTMLButtonElement;
+    expect(layoutToggle).not.toBeNull();
+    expect(layoutToggle.textContent?.trim()).toBe('☰');
 
     expect(fixture.nativeElement.querySelector('.lobby-nav')).toBeNull();
     expect(fixture.nativeElement.querySelector('.lobby-bottom-menu')).not.toBeNull();
@@ -445,12 +528,19 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')).not.toBeNull();
     expect(fixture.nativeElement.querySelectorAll('.lobby-shortcut-bar small').length).toBe(5);
 
-    (fixture.nativeElement.querySelector('[aria-label="Messages"]') as HTMLButtonElement).click();
-    expect(app.notice()).toContain('Messages are not available');
+    layoutToggle.click();
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.table-list')?.classList.contains('list-view')).toBeTrue();
+    layoutToggle = fixture.nativeElement.querySelector('[aria-label="Switch to grid view"]') as HTMLButtonElement;
+    expect(layoutToggle.textContent?.trim()).toBe('▦');
     expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')).toBeNull();
     expect(fixture.nativeElement.querySelector('.lobby-nav')).toBeNull();
     expect(fixture.nativeElement.querySelector('.lobby-bottom-menu')).not.toBeNull();
+
+    layoutToggle.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.table-list')?.classList.contains('list-view')).toBeFalse();
+    expect(fixture.nativeElement.querySelector('[aria-label="Switch to list view"]')?.textContent?.trim()).toBe('☰');
 
     (fixture.nativeElement.querySelector('.lobby-bottom-menu') as HTMLButtonElement).click();
     fixture.detectChanges();

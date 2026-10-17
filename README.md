@@ -19,6 +19,7 @@ The Angular client implements clubhouse, lobby, live-table, union-table, and han
 - Selecting an empty chair opens a buy-in confirmation prefilled to that table's minimum. The UI validates the verified member's wallet summary, fails closed on mismatched identity or invalid balances, and checks available funds before requesting a seat. Idempotency keys stay tied to the member and exact seat request; the available balance refreshes after the server confirms seating.
 - After seating, if the server marks `blind_decision_pending`, the player can choose to post the blind or wait for the big blind. The client sends correlated `BLIND_DECISION` and does not apply the choice optimistically.
 - Each returned table is shown in its own card with the catalog-resolved `game_id`, status, blinds, buy-in range, and seat counts. Missing game identifiers are not presented as NLH.
+- The lobby defaults to a two-column table grid. The floating layout shortcut toggles to full-width list rows and changes its icon to indicate the action that will switch back; a second click restores the grid.
 - The table route is table-only: setup and connection fields are not shown beside the felt. Players select open seats and use game actions on the table surface; verified table managers can start a hand there.
 - Table creation/seating/hand-start requests, authenticated websocket setup, and replay API integration.
 - Live-table sockets use WebSocket protocol v1 envelopes, force-refresh Firebase tokens for each connection, answer `PING`, and reconnect with a new full server snapshot. Player actions include `action_id`; pre-actions use `PRE_ACTION` and are displayed from the player's snapshot. The table UI renders the server's 20-second action and disconnect timers but never locally resolves turns or changes seat/connectivity state.
@@ -91,7 +92,7 @@ These checks are currently UI-level only. They are not security controls. The ba
 
 The frontend dashboard is implemented using the fixture at [public/ui-mocks/wallet-dashboard.json](public/ui-mocks/wallet-dashboard.json). It is labeled `mock_only: true`, is not an API response, and does not read wallet documents from Firestore. Keep it clearly separated from live data until authenticated wallet APIs and permissions are defined.
 
-The sample viewer is Alex (`user-agent-player-a`) with both `AGENT` and `PLAYER` roles in `club-demo`. It has 250,000 `GLOBAL_PLAYMONEY`, 300,000 in the club treasury, 48,000 in the agent account, and a player account with 14,600 available plus 1,200 in play. The listed `Main Table` stack is 1,200 and is already included in the player's `in_play_balance`. Recent mock transactions use `transaction_id` values and are marked `mock_only` with the dashboard.
+The sample viewer is Alex (`user-agent-player-a`) with both `AGENT` and `PLAYER` roles in `club-demo`. The mock shows the requested 20,000 `GLOBAL_PLAYMONEY` onboarding grant, 300,000 in the club treasury, 48,000 in the agent mock account, and a player mock account with 14,600 available plus 1,200 in play. The listed `Main Table` stack is 1,200 and is already included in the player's `in_play_balance`. It also previews the documented 10,000 treasury grant from `POST /platform/clubs` (the owner's personal balance starts at zero) and includes a pending mock cash-out request. None of these fixture values are live member data.
 
 Keep each wallet scope separate:
 
@@ -101,7 +102,7 @@ Keep each wallet scope separate:
 - `CLUB_TREASURY`: show the club reserve and authorized inter-club transfer history in owner/manager tools.
 - `TABLE_ESCROW` / table stack: display the player's stack for that table, but never treat it as another spendable wallet or add it to available balance.
 
-A member can hold both `AGENT` and `PLAYER` roles in the same club. Keep their `CLUB_AGENT` and `CLUB_PLAYER` accounts and views distinct; never aggregate balances across wallet types or currency types. The persistent global wallet and separate agent/player wallet APIs are not implemented. The dashboard remains mock-only; table seating uses the authenticated club wallet-summary contract below when the backend implements it.
+A member can hold both `AGENT` and `PLAYER` roles in the same club. The supplied UI Integration Guide says current backend balances are shared across those roles; separate `CLUB_AGENT` and `CLUB_PLAYER` accounts are only a mock/future model. Club players receive funds only through an authorized operator transfer. The guide documents `POST /clubs/{club_id}/wallet/send-out` and operator `POST /clubs/{club_id}/wallet/claim-back`; neither flow is wired into this frontend. Player-initiated cash-out request/approval and persistent global-wallet APIs are unavailable. The mock cash-out request creates a pending UI record only and never changes balances.
 
 ## Backend contract and known gaps
 
@@ -112,6 +113,8 @@ This frontend assumes a backend exists for the following endpoints and behavior:
 - table creation and setup
 - seat assignment with `buy_in_amount`
 - authenticated wallet summary at `GET /clubs/{club_id}/members/me/wallet`, returning `club_id`, `user_id`, `currency_type: "CLUB_CHIPS"`, `available_balance`, and `in_play_balance`
+- club creation at `POST /platform/clubs`, which the supplied UI guide says credits 10,000 `CLUB_CHIPS` to `CLUB_TREASURY` and leaves the owner's personal member balance at zero
+- authorized operator transfers at `POST /clubs/{club_id}/wallet/send-out` and claim-back at `POST /clubs/{club_id}/wallet/claim-back`; claim-back is blocked while `in_play_balance` is nonzero and both use `transaction_id`
 - table list or club-lobby data
 - hand start and table update streams
 - authenticated websocket access for table state
@@ -125,7 +128,9 @@ This frontend assumes a backend exists for the following endpoints and behavior:
 
 An authenticated Firebase account is globally valid; club membership is separate and begins when a club invitation is accepted. A missing club membership must not invalidate the global account. Phone/password sign-in and reset routes are frontend contracts, not proof that the backend routes exist. Phone account creation is not implemented yet. Do not authenticate based only on a client-supplied phone number.
 
-Before seating, the client fetches the signed-in member's wallet summary from the home club and validates its club, member, currency, and both balances. `available_balance` must cover both the table minimum and requested buy-in; `in_play_balance` and table stacks are not spendable for another buy-in. The request idempotency key is reused only for an identical member/table/seat/amount request, and the displayed available balance refreshes after server confirmation. This is a UI preflight only: the seat endpoint must atomically re-check and reserve/debit the funds. The wallet-summary route is required by the frontend but is not implemented in this workspace's backend.
+Before seating, the client fetches the signed-in member's wallet summary from the home club and validates its club, member, currency, and both balances. `available_balance` must cover both the table minimum and requested buy-in; `in_play_balance` and table stacks are not spendable for another buy-in. The request idempotency key is reused only for an identical member/table/seat/amount request, and the displayed available balance refreshes after server confirmation. This is a UI preflight only: the seat endpoint must atomically re-check and reserve/debit the funds. The supplied UI guide says the member wallet-summary route does not exist; it is required by the current frontend preflight but is not implemented in this workspace's backend.
+
+The dashboard fixture models a 20,000 global account-creation grant and a pending player cash-out request. The global grant/read API and player-initiated cash-out request/approval API are not available in the supplied guide, so both remain mock-only. Do not apply the mock request to any displayed balance. For real club funds, use the documented operator transfer and claim-back endpoints once their exact request/response schemas are available to this frontend.
 
 The replay feature is split into a token-authenticated API service, signal store, container, and presentation components under `src/app/features/hand-replay/`. Private hand history requests require the active Firebase ID token from the authenticated session.
 

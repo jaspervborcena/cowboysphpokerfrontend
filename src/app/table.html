@@ -146,7 +146,7 @@
           <button type="submit" [disabled]="busy() !== ''">{{ busy() === 'union-create' ? 'Creating…' : 'Create shared table' }}</button>
         </form>
       }
-      <div class="table-list">
+      <div class="table-list" [class.list-view]="tableLayout() === 'list'">
         @for (table of visibleLobbyTables; track table.id) {
           <article class="lobby-table-card" [class.featured-table]="table.featured">
             <div class="table-card-top"><span class="game-badge">{{ table.game }}</span><span class="table-state" [class.running]="table.status === 'RUNNING'">{{ table.status }}</span></div>
@@ -174,7 +174,7 @@
     </main>
     <aside class="lobby-shortcuts" aria-label="Lobby shortcuts">
       <button class="lobby-shortcut union-shortcut" type="button" aria-label="Union tables" title="Union tables" (click)="selectLobbyScope('union')"><span>♧</span></button>
-      <button class="lobby-shortcut" type="button" aria-label="Messages" title="Messages" (click)="openLobbyMessages()"><span>▱</span></button>
+      <button class="lobby-shortcut" type="button" [attr.aria-label]="tableLayout() === 'grid' ? 'Switch to list view' : 'Switch to grid view'" [attr.title]="tableLayout() === 'grid' ? 'Switch to list view' : 'Switch to grid view'" (click)="toggleTableLayout()"><span aria-hidden="true">{{ tableLayout() === 'grid' ? '☰' : '▦' }}</span></button>
       <button class="lobby-shortcut" type="button" aria-label="Create a new table" title="Create a new table" (click)="openClubTableWizard()"><span>＋</span></button>
     </aside>
     @if (!lobbyQuickMenuOpen()) {

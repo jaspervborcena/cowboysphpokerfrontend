@@ -21,6 +21,11 @@
 .wallet-balance-pair strong { color: #f2fbf6; font-size: 20px; font-variant-numeric: tabular-nums; }
 .wallet-balance-note { margin: 2px 0 0; color: #f0d394; font-size: 8px; line-height: 1.45; }
 .wallet-detail-section { margin-top: 14px; }
+.wallet-onboarding { padding-top: 2px; }
+.wallet-cashout-amount { display: grid; gap: 5px; margin: 8px 0; color: #a8c4c7; font-size: 8px; }
+.wallet-cashout-amount input { height: 34px; border-color: #315b77; background: #102a3f; color: #edf7ff; }
+.wallet-cashout-submit { min-height: 34px; padding: 0 12px; border: 1px solid #318b8b; border-radius: 3px; background: #155b60; color: #effdfa; font-size: 9px; font-weight: 700; cursor: pointer; }
+.wallet-cashout-submit:hover { background: #1a7071; }
 .wallet-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
 .wallet-section-heading h3 { margin: 0; color: #e6f4f5; font-size: 11px; }
 .wallet-section-heading span { color: #83b5b5; font-size: 7px; font-weight: 800; }

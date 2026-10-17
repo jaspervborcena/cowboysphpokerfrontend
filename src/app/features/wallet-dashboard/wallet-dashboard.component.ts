@@ -1,7 +1,13 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, EventEmitter, Input, OnInit, Output, inject, signal } from '@angular/core';
 import { WalletDashboardMockService } from './wallet-dashboard.mock.service';
-import { WalletAccount, WalletDashboard, WalletTransaction, WalletType } from './wallet-dashboard.models';
+import {
+  WalletAccount,
+  WalletCashoutRequest,
+  WalletDashboard,
+  WalletTransaction,
+  WalletType
+} from './wallet-dashboard.models';
 
 @Component({
   selector: 'app-wallet-dashboard',
@@ -18,6 +24,9 @@ export class WalletDashboardComponent implements OnInit {
   readonly selectedClubWalletType = signal<WalletType>('CLUB_PLAYER');
   readonly loading = signal(true);
   readonly loadError = signal(false);
+  readonly cashoutAmount = signal(600);
+  readonly cashoutNotice = signal('');
+  readonly mockCashoutRequests = signal<WalletCashoutRequest[]>([]);
   private readonly walletService = inject(WalletDashboardMockService);
 
   ngOnInit(): void {
@@ -25,6 +34,7 @@ export class WalletDashboardComponent implements OnInit {
     this.walletService.load().subscribe({
       next: (dashboard) => {
         this.dashboard.set(dashboard);
+        this.mockCashoutRequests.set(dashboard.cashout_requests);
         this.loading.set(false);
         const playerWallet = this.availableClubWallets.find((wallet) => wallet.wallet_type === 'CLUB_PLAYER');
         const firstWallet = playerWallet ?? this.availableClubWallets[0];
@@ -65,6 +75,52 @@ export class WalletDashboardComponent implements OnInit {
   get selectedTableStacks(): WalletDashboard['table_stacks'] {
     if (this.activeScope() !== 'club' || this.selectedClubWalletType() !== 'CLUB_PLAYER') return [];
     return this.dashboard()?.table_stacks ?? [];
+  }
+
+  get cashoutRequestsForViewer(): WalletCashoutRequest[] {
+    const dashboard = this.dashboard();
+    if (!dashboard) return [];
+    return this.mockCashoutRequests().filter((request) =>
+      request.club_id === dashboard.viewer.club_id && request.user_id === dashboard.viewer.user_id
+    );
+  }
+
+  setCashoutAmount(value: string): void {
+    const amount = Number(value);
+    this.cashoutAmount.set(Number.isFinite(amount) ? amount : 0);
+  }
+
+  requestMockCashout(): void {
+    const dashboard = this.dashboard();
+    const wallet = this.selectedClubWallet;
+    if (!dashboard
+      || this.activeScope() !== 'club'
+      || this.selectedClubWalletType() !== 'CLUB_PLAYER'
+      || !dashboard.viewer.roles.includes('PLAYER')
+      || !wallet) {
+      return;
+    }
+
+    const amount = this.cashoutAmount();
+    const availableBalance = Number(wallet.available_balance ?? 0);
+    const alreadyPending = this.cashoutRequestsForViewer.reduce((total, request) => total + request.amount, 0);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount + alreadyPending > availableBalance) {
+      this.cashoutNotice.set('Enter a whole-chip amount within the available balance after pending requests.');
+      return;
+    }
+
+    this.mockCashoutRequests.update((requests) => [{
+      request_id: `mock-cashout-request-${crypto.randomUUID()}`,
+      wallet_type: 'CLUB_PLAYER',
+      club_id: dashboard.viewer.club_id,
+      user_id: dashboard.viewer.user_id,
+      amount,
+      status: 'pending_mock',
+      player_request_api_available: false,
+      operator_fulfillment_endpoint: 'POST /clubs/{club_id}/wallet/claim-back',
+      blocked_while_in_play_balance_nonzero: Number(wallet.in_play_balance ?? 0) > 0
+    }, ...requests]);
+    this.cashoutNotice.set('Mock cash-out request added. No wallet balance was changed.');
   }
 
   walletLabel(walletType: WalletType): string {

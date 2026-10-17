@@ -112,6 +112,7 @@ export class App implements OnInit, OnDestroy {
   screen = signal<'home' | 'lobby' | 'table' | 'replay'>('home');
   lobbyGame = signal('ALL');
   lobbyScope = signal<'club' | 'union'>('club');
+  tableLayout = signal<'grid' | 'list'>('grid');
   unions = signal<ClubUnionSummary[]>([]);
   unionTables = signal<LobbyTable[]>([]);
   selectedUnionId = signal<string | null>(null);
@@ -958,6 +959,11 @@ export class App implements OnInit, OnDestroy {
 
   toggleLobbyQuickMenu(): void {
     this.lobbyQuickMenuOpen.update((open) => !open);
+  }
+
+  toggleTableLayout(): void {
+    this.tableLayout.update((layout) => layout === 'grid' ? 'list' : 'grid');
+    this.closeLobbyQuickMenu();
   }
 
   closeLobbyQuickMenu(): void {
