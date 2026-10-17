@@ -44,6 +44,7 @@ describe('App', () => {
           }),
           getTables: () => of([]),
           getUnions: () => of([]),
+          getUnionMembership: () => of({ union_id: 'union-1', user_id: 'player-1', role: 'UNION_ADMIN' }),
           getUnionTables: () => of([])
         } }
       ],
@@ -55,6 +56,65 @@ describe('App', () => {
     const app = fixture.componentInstance;
     expect(app).toBeTruthy();
     expect(app.isMyTurn).toBeFalse();
+  });
+
+  it('opens the four table-edge drawers from their controls', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.screen.set('table');
+    app.snapshot.set({
+      table_id: 'table-1',
+      table_name: 'Test Table',
+      is_union_table: false,
+      union_id: null,
+      origin_club_id: null,
+      hand_id: null,
+      is_hand_running: false,
+      street: null,
+      community_cards: [],
+      pot: 0,
+      pots: [],
+      active_turn_seat: null,
+      players: []
+    });
+    fixture.detectChanges();
+
+    const controls = fixture.nativeElement.querySelectorAll('.table-edge-control') as NodeListOf<HTMLButtonElement>;
+    expect(controls.length).toBe(4);
+    const expectedDrawers = ['stand-up', 'results', 'history', 'chat'] as const;
+    expectedDrawers.forEach((drawer, index) => {
+      controls[index].click();
+      fixture.detectChanges();
+      expect(app.tableDrawerOpen()).toBe(drawer);
+      expect(fixture.nativeElement.querySelector('.table-tool-drawer')).not.toBeNull();
+      app.closeTableDrawer();
+      fixture.detectChanges();
+    });
+  });
+
+  it('keeps internal policy diagnostics out of the member UI', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.policy-status-panel')).toBeNull();
+  });
+
+  it('allows a signed-in non-owner to create a local preview club without changing their backend role', () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
+
+    app.openCreateClub();
+    expect(app.clubProfileOpen()).toBeTrue();
+    app.clubNameDraft.set('Player Preview Club');
+    app.saveClubProfile();
+
+    expect(app.clubProfileOpen()).toBeFalse();
+    expect(app.homeClubCards.some((club) => club.name === 'Player Preview Club' && club.id.startsWith('local-club-'))).toBeTrue();
+    expect(session.role()).toBe('PLAYER');
+    expect(session.canManageClub()).toBeFalse();
+    expect(app.notice()).toContain('Local preview club created in this browser');
+    localStorage.removeItem('cowboys-local-clubs');
   });
 
   it('normalizes phone sign-in and exchanges the backend token with Firebase', async () => {
@@ -664,7 +724,7 @@ describe('App', () => {
     fixture.detectChanges();
     app.gameCatalog.set({ active_game_id: '', games: [] });
     app.gameCatalogLoaded.set(true);
-    session.setAuthenticatedIdentity('template-creator', 'Template Creator', 'firebase-token');
+    session.setVerifiedMember('template-creator', 'Template Creator', 'OWNER', 'firebase-token');
     app.clubNameDraft.set('Micro Room');
     app.saveClubProfile();
 
@@ -778,12 +838,12 @@ describe('App', () => {
     expect(app.notice()).toContain('preview room');
   });
 
-  it('should open the home menu and club profile from the home action', () => {
+  it('should open the home menu and club profile from the owner bootstrap flow', () => {
     localStorage.removeItem('cowboys-local-clubs');
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
     fixture.detectChanges();
-    TestBed.inject(UserSessionStore).setAuthenticatedIdentity('global-user', 'Global Player', 'firebase-token');
+    TestBed.inject(UserSessionStore).setVerifiedMember('global-user', 'Global Player', 'OWNER', 'firebase-token');
 
     (fixture.nativeElement.querySelector('[aria-label="Home"]') as HTMLButtonElement).click();
     fixture.detectChanges();
@@ -891,6 +951,38 @@ describe('App', () => {
     expect(session.canManageUnion('union-1')).toBeFalse();
   });
 
+  it('should only grant union admin access when the backend returns the UNION_ADMIN role', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const api = TestBed.inject(ClubApiService);
+    spyOn(api, 'getUnions').and.returnValue(of([{ union_id: 'union-1', name: 'North Club' }]));
+    spyOn(api, 'getUnionMembership').and.returnValue(of({ union_id: 'union-1', user_id: 'member-1', role: 'PLAYER' as any }));
+    session.setVerifiedMember('member-1', 'Member', 'PLAYER', 'firebase-token');
+    app.clubId = 'club-1';
+
+    (app as any).loadLobbyData();
+
+    expect(session.canManageUnion('union-1')).toBeFalse();
+    expect(session.canManageTables()).toBeFalse();
+  });
+
+  it('should reject malformed union membership payloads instead of granting admin rights', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const api = TestBed.inject(ClubApiService);
+    spyOn(api, 'getUnions').and.returnValue(of([{ union_id: 'union-1', name: 'North Club' }]));
+    spyOn(api, 'getUnionMembership').and.returnValue(of({ union_id: 'union-1', user_id: 'member-1' } as any));
+    session.setVerifiedMember('member-1', 'Member', 'PLAYER', 'firebase-token');
+    app.clubId = 'club-1';
+
+    (app as any).loadLobbyData();
+
+    expect(session.canManageUnion('union-1')).toBeFalse();
+    expect(session.canManageTables()).toBeFalse();
+  });
+
   it('should show the full member menu only for agent and higher roles', async () => {
     const fixture = TestBed.createComponent(App);
     const session = TestBed.inject(UserSessionStore);
@@ -915,11 +1007,54 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.desk-cashier-tabs')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.mock-data-badge')?.textContent).toContain('MOCK DATA');
     expect(fixture.nativeElement.querySelector('[data-desk-section="overview"]')).toBeNull();
+    const recipients = fixture.nativeElement.querySelectorAll('.desk-recipient-checkbox input') as NodeListOf<HTMLInputElement>;
+    recipients[0].click();
+    recipients[1].click();
     (fixture.nativeElement.querySelector('.desk-trade-actions .primary') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.desk-balance-strip')?.textContent).toContain('12,300');
+    const sendOutShares = fixture.nativeElement.querySelectorAll('.desk-send-out-recipients > div') as NodeListOf<HTMLElement>;
+    expect(sendOutShares.length).toBe(2);
+    expect(sendOutShares[0].textContent).toContain('50');
+    expect(sendOutShares[1].textContent).toContain('50');
+    (fixture.nativeElement.querySelector('.desk-send-out-confirm > footer .primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.desk-balance-strip')?.textContent).toContain('9,900');
     expect(fixture.nativeElement.querySelector('.desk-notice')?.textContent).toContain('Mock send out');
     expect(fixture.nativeElement.querySelectorAll('.desk-trade-member').length).toBe(3);
+    (fixture.nativeElement.querySelector('.desk-cashier-tabs button:nth-child(2)') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const sentTrades = fixture.nativeElement.querySelectorAll('.desk-record-row') as NodeListOf<HTMLElement>;
+    expect(sentTrades[0].textContent).toContain('joppy2024');
+    expect(sentTrades[0].textContent).toContain('50');
+    expect(sentTrades[1].textContent).toContain('cool CAT');
+    expect(sentTrades[1].textContent).toContain('50');
+    (fixture.nativeElement.querySelector('.desk-cashier-tabs button:first-child') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const claimRecipients = fixture.nativeElement.querySelectorAll('.desk-recipient-checkbox input') as NodeListOf<HTMLInputElement>;
+    claimRecipients[2].click();
+    (fixture.nativeElement.querySelector('.desk-trade-actions button:first-child') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.desk-claim-back-confirm footer .primary') as HTMLButtonElement).disabled).toBeTrue();
+    expect(fixture.nativeElement.querySelector('.desk-claim-back-error')?.textContent).toContain('do not have enough chips');
+    (fixture.nativeElement.querySelector('.desk-claim-back-confirm footer button:first-child') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    claimRecipients[2].click();
+    claimRecipients[0].click();
+    claimRecipients[1].click();
+    (fixture.nativeElement.querySelector('.desk-trade-actions button:first-child') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.desk-send-out-recipients > div').length).toBe(2);
+    expect((fixture.nativeElement.querySelector('.desk-claim-back-confirm footer .primary') as HTMLButtonElement).disabled).toBeFalse();
+    (fixture.nativeElement.querySelector('.desk-claim-back-confirm footer .primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.desk-balance-strip')?.textContent).toContain('10,000');
+    (fixture.nativeElement.querySelector('.desk-cashier-tabs button:nth-child(2)') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const claimTrades = fixture.nativeElement.querySelectorAll('.desk-record-row') as NodeListOf<HTMLElement>;
+    expect(claimTrades[0].textContent).toContain('CLAIM BACK');
+    expect(claimTrades[0].textContent).toContain('joppy2024');
+    expect(claimTrades[1].textContent).toContain('CLAIM BACK');
+    expect(claimTrades[1].textContent).toContain('cool CAT');
     (fixture.nativeElement.querySelector('.staff-desk-close') as HTMLButtonElement).click();
     fixture.detectChanges();
 

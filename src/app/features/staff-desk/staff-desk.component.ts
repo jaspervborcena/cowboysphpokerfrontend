@@ -39,12 +39,15 @@ export class StaffDeskComponent implements OnChanges {
   readonly recordSearch = signal('');
   readonly memberSort = signal<MemberSort>('fee');
   readonly selectedMemberId = signal('member-01');
+  readonly selectedMemberIds = signal<string[]>([]);
   readonly amount = signal(100);
-  readonly availableChips = signal(12_400);
+  readonly availableChips = signal(10_000);
   readonly yourChips = signal(80.49);
   readonly autoReject = signal(false);
   readonly notificationsEnabled = signal(true);
   readonly quitPromptOpen = signal(false);
+  readonly sendOutConfirmOpen = signal(false);
+  readonly claimBackConfirmOpen = signal(false);
   readonly notice = signal('');
 
   readonly members = signal<MockDeskMember[]>([
@@ -86,6 +89,31 @@ export class StaffDeskComponent implements OnChanges {
   readonly selectedMember = computed(() =>
     this.members().find((member) => member.id === this.selectedMemberId()) ?? this.visibleMembers()[0] ?? null
   );
+  readonly sendOutAllocations = computed(() => {
+    const recipients = this.members().filter((member) => this.selectedMemberIds().includes(member.id));
+    const total = this.amount();
+    if (recipients.length === 0 || !Number.isSafeInteger(total) || total <= 0) return [];
+    const share = Math.floor(total / recipients.length);
+    const remainder = total % recipients.length;
+    return recipients.map((member, index) => ({ member, amount: share + (index < remainder ? 1 : 0) }));
+  });
+  readonly claimBackAllocations = computed(() => {
+    const recipients = this.members().filter((member) => this.selectedMemberIds().includes(member.id));
+    const total = this.amount();
+    if (recipients.length === 0 || !Number.isSafeInteger(total) || total <= 0) return [];
+    const share = Math.floor(total / recipients.length);
+    const remainder = total % recipients.length;
+    return recipients.map((member, index) => ({ member, amount: share + (index < remainder ? 1 : 0) }));
+  });
+  readonly selectedPlayersChipTotal = computed(() => this.members()
+    .filter((member) => this.selectedMemberIds().includes(member.id))
+    .reduce((total, member) => total + member.chips, 0));
+  readonly canConfirmClaimBack = computed(() => {
+    const allocations = this.claimBackAllocations();
+    return allocations.length > 0
+      && this.amount() >= allocations.length
+      && allocations.every(({ member, amount }) => amount <= member.chips);
+  });
   readonly totalMemberChips = computed(() => this.members().reduce((sum, member) => sum + member.chips, 0));
   readonly filteredTrades = computed(() => {
     const query = this.recordSearch().trim().toLowerCase();
@@ -109,6 +137,116 @@ export class StaffDeskComponent implements OnChanges {
     this.amount.set(value === '' ? 0 : Number(value));
   }
 
+  toggleMemberForSendOut(memberId: string): void {
+    this.selectedMemberIds.update((selected) => selected.includes(memberId)
+      ? selected.filter((id) => id !== memberId)
+      : [...selected, memberId]);
+  }
+
+  openSendOutConfirmation(): void {
+    const allocations = this.sendOutAllocations();
+    if (allocations.length === 0) {
+      this.notice.set('Select at least one member and enter a positive whole-chip amount.');
+      return;
+    }
+    if (this.amount() < allocations.length) {
+      this.notice.set('The total must provide at least one chip for each selected member.');
+      return;
+    }
+    if (this.amount() > this.availableChips()) {
+      this.notice.set('The mock club balance is too low for that send-out.');
+      return;
+    }
+    this.notice.set('');
+    this.sendOutConfirmOpen.set(true);
+  }
+
+  cancelSendOutConfirmation(): void {
+    this.sendOutConfirmOpen.set(false);
+  }
+
+  confirmSendOut(): void {
+    const allocations = this.sendOutAllocations();
+    const total = this.amount();
+    if (allocations.length === 0 || !Number.isSafeInteger(total)
+      || total < allocations.length || total > this.availableChips()) {
+      this.sendOutConfirmOpen.set(false);
+      this.notice.set('The send-out could not be completed. Check the amount and available mock funds.');
+      return;
+    }
+
+    const amountsByMember = new Map(allocations.map(({ member, amount }) => [member.id, amount]));
+    this.members.update((members) => members.map((member) => ({
+      ...member,
+      chips: member.chips + (amountsByMember.get(member.id) ?? 0)
+    })));
+    this.availableChips.update((balance) => balance - total);
+    const firstTradeId = Math.max(0, ...this.trades().map((trade) => trade.id)) + 1;
+    this.trades.update((trades) => [
+      ...allocations.map(({ member, amount }, index) => ({
+        id: firstTradeId + index,
+        type: 'SEND OUT',
+        member: member.name,
+        amount,
+        time: 'Just now',
+        status: 'COMPLETED'
+      })),
+      ...trades
+    ]);
+    this.sendOutConfirmOpen.set(false);
+    this.notice.set(`Mock send out of ${total.toLocaleString()} chips split between ${allocations.length} ${allocations.length === 1 ? 'member' : 'members'}.`);
+    this.selectedMemberIds.set([]);
+  }
+
+  openClaimBackConfirmation(): void {
+    const allocations = this.claimBackAllocations();
+    if (allocations.length === 0) {
+      this.notice.set('Select at least one member and enter a positive whole-chip amount.');
+      return;
+    }
+    if (this.amount() < allocations.length) {
+      this.notice.set('The total must provide at least one chip from each selected member.');
+      return;
+    }
+    this.notice.set('');
+    this.claimBackConfirmOpen.set(true);
+  }
+
+  cancelClaimBackConfirmation(): void {
+    this.claimBackConfirmOpen.set(false);
+  }
+
+  confirmClaimBack(): void {
+    const allocations = this.claimBackAllocations();
+    const total = this.amount();
+    if (!this.canConfirmClaimBack() || !Number.isSafeInteger(total)) {
+      this.notice.set('One or more selected members do not have enough chips for their share.');
+      return;
+    }
+
+    const amountsByMember = new Map(allocations.map(({ member, amount }) => [member.id, amount]));
+    this.members.update((members) => members.map((member) => ({
+      ...member,
+      chips: member.chips - (amountsByMember.get(member.id) ?? 0)
+    })));
+    this.availableChips.update((balance) => balance + total);
+    const firstTradeId = Math.max(0, ...this.trades().map((trade) => trade.id)) + 1;
+    this.trades.update((trades) => [
+      ...allocations.map(({ member, amount }, index) => ({
+        id: firstTradeId + index,
+        type: 'CLAIM BACK',
+        member: member.name,
+        amount,
+        time: 'Just now',
+        status: 'COMPLETED'
+      })),
+      ...trades
+    ]);
+    this.claimBackConfirmOpen.set(false);
+    this.notice.set(`Mock claim back of ${total.toLocaleString()} chips collected from ${allocations.length} ${allocations.length === 1 ? 'member' : 'members'}.`);
+    this.selectedMemberIds.set([]);
+  }
+
   toggleAutoReject(): void {
     this.autoReject.update((value) => !value);
   }
@@ -118,28 +256,22 @@ export class StaffDeskComponent implements OnChanges {
   }
 
   runMockTrade(type: 'SEND OUT' | 'CLAIM BACK' | 'SEND TICKET'): void {
+    if (type === 'SEND OUT') {
+      this.openSendOutConfirmation();
+      return;
+    }
+    if (type === 'CLAIM BACK') {
+      this.openClaimBackConfirmation();
+      return;
+    }
+
     const member = this.selectedMember();
     const amount = this.amount();
     if (!member || !Number.isSafeInteger(amount) || amount <= 0) {
       this.notice.set('Enter a member and a positive whole-chip amount.');
       return;
     }
-    if (type === 'SEND OUT' && amount > this.availableChips()) {
-      this.notice.set('The mock club balance is too low for that send-out.');
-      return;
-    }
-    if (type === 'CLAIM BACK' && amount > member.chips) {
-      this.notice.set('The member does not have enough mock chips to claim back.');
-      return;
-    }
-
-    if (type === 'SEND OUT') {
-      this.availableChips.update((balance) => balance - amount);
-      this.updateMemberChips(member.id, member.chips + amount);
-    } else if (type === 'CLAIM BACK') {
-      this.updateMemberChips(member.id, member.chips - amount);
-      this.availableChips.update((balance) => balance + amount);
-    } else {
+    {
       this.requests.update((requests) => [{
         id: Math.max(0, ...requests.map((request) => request.id)) + 1,
         member: member.name,

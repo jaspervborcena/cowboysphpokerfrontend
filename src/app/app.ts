@@ -57,6 +57,8 @@ type TableSnapshot = {
   players: PokerPlayer[];
 };
 
+type TableDrawer = 'stand-up' | 'results' | 'history' | 'chat';
+
 interface LobbyTable {
   id: string;
   name: string;
@@ -350,6 +352,7 @@ export class App implements OnInit, OnDestroy {
   private globalWalletLoadUserId = '';
   sitInPending = signal(false);
   blindDecisionPending = signal(false);
+  tableDrawerOpen = signal<TableDrawer | null>(null);
 
   constructor(private readonly http: HttpClient, session: UserSessionStore) {
     this.session = session;
@@ -637,6 +640,11 @@ export class App implements OnInit, OnDestroy {
 
   openCreateClub(): void {
     this.homeMenuOpen.set(false);
+    if (!this.session.firebaseUid() && !this.session.memberId()) {
+      this.notice.set('Sign in before creating a local preview club.');
+      return;
+    }
+
     this.clubNameDraft.set('');
     this.clubNoticeDraft.set('');
     this.selectedClubLogo.set('lions');
@@ -644,14 +652,15 @@ export class App implements OnInit, OnDestroy {
   }
 
   saveClubProfile(): void {
-    const name = this.clubNameDraft().trim();
-    if (!name) return;
     const creatorId = this.session.firebaseUid() || this.session.memberId();
     if (!creatorId) {
-      this.notice.set('Sign in before creating a club profile.');
+      this.clubProfileOpen.set(false);
+      this.notice.set('Sign in before creating a local preview club.');
       return;
     }
 
+    const name = this.clubNameDraft().trim();
+    if (!name) return;
     const logo = this.currentClubLogo;
     this.homeClubCards = [...this.homeClubCards, {
       id: `local-club-${Date.now()}`,
@@ -670,7 +679,7 @@ export class App implements OnInit, OnDestroy {
     this.persistLocalClubs();
     this.clubCardIndex.set(this.homeClubCards.length - 1);
     this.clubProfileOpen.set(false);
-    this.notice.set('Club profile added as a local preview. Server-side club creation is not connected.');
+    this.notice.set('Local preview club created in this browser. Server-side club creation is not available.');
   }
 
   closeClubProfile(): void {
@@ -1385,7 +1394,13 @@ export class App implements OnInit, OnDestroy {
         }
         for (const union of unions) {
           this.clubApi.getUnionMembership(this.baseUrl(), union.union_id, idToken).subscribe({
-            next: () => this.session.setUnionAdmin(union.union_id, true),
+            next: (membership) => {
+              const isUnionAdmin = !!membership
+                && typeof membership === 'object'
+                && 'role' in membership
+                && membership.role === 'UNION_ADMIN';
+              this.session.setUnionAdmin(union.union_id, isUnionAdmin);
+            },
             error: () => this.session.setUnionAdmin(union.union_id, false)
           });
         }
@@ -1774,7 +1789,15 @@ export class App implements OnInit, OnDestroy {
   }
 
   openTableChat(): void {
-    this.notice.set('Table chat is not available in this backend yet.');
+    this.toggleTableDrawer('chat');
+  }
+
+  toggleTableDrawer(drawer: TableDrawer): void {
+    this.tableDrawerOpen.update((open) => open === drawer ? null : drawer);
+  }
+
+  closeTableDrawer(): void {
+    this.tableDrawerOpen.set(null);
   }
 
   sendAction(action: 'FOLD' | 'CHECK' | 'CALL' | 'RAISE'): void {

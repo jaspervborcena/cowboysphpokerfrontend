@@ -6,14 +6,14 @@
       <div class="member-identity"><strong>{{ username }}</strong><span>ID: {{ userId }}</span><small>{{ session.membershipStatus() === 'verified' ? session.role() : session.membershipStatus() === 'not-a-member' ? 'GLOBAL PLAYER' : 'PLAYER' }}</small></div>
       <button class="member-wallet" type="button" [attr.aria-label]="'Open global wallet, balance ' + (globalWalletBalance() ?? 'unavailable')" [title]="globalWalletError() ? 'Global wallet balance is unavailable' : 'Open global wallet'" (click)="openWallet('global')"><span aria-hidden="true">♢</span><div><small>GLOBAL PLAYMONEY</small><strong>{{ globalWalletLoading() ? '…' : globalWalletError() ? 'Unavailable' : globalWalletBalance() !== null ? (globalWalletBalance() | number) : '—' }}</strong></div><span class="wallet-open-mark" aria-hidden="true">↗</span></button>
       <button class="member-session-signout" type="button" aria-label="Sign out" title="Sign out" (click)="signOutCurrentUser()">↪</button>
-      <button class="member-menu" type="button" (click)="toggleControls()" aria-label="Open member controls">☰</button>
+      <button class="member-menu" type="button" (click)="toggleControls()" aria-label="Open member controls" aria-controls="member-navigation" [attr.aria-expanded]="controlsOpen()">☰</button>
     </header>
     <main class="home-screen">
       <div class="club-hall">
         <div class="hall-icons"><button type="button" aria-label="Home" aria-haspopup="menu" [attr.aria-expanded]="homeMenuOpen()" (click)="toggleHomeMenu()">⌂</button><button type="button" aria-label="Search club">⌕</button></div>
         @if (homeMenuOpen()) {
           <div class="hall-home-menu" role="menu" aria-label="Home actions">
-            <button type="button" role="menuitem" (click)="openCreateClub()"><span aria-hidden="true">♜</span>Create A Club</button>
+            <button type="button" role="menuitem" title="Create a local preview club" (click)="openCreateClub()"><span aria-hidden="true">♜</span>Create A Club</button>
             <button type="button" role="menuitem" (click)="showFriendTableNotice()"><span aria-hidden="true">♧</span>Friend Table</button>
           </div>
         }
@@ -70,14 +70,17 @@
       </div>
 
     </main>
-    <nav class="member-nav" aria-label="Member navigation">
+    @if (controlsOpen()) {
+      <button class="member-nav-scrim drawer-scrim" type="button" aria-label="Close member navigation" (click)="controlsOpen.set(false)"></button>
+    }
+    <nav id="member-navigation" class="member-nav" [class.open]="controlsOpen()" [attr.aria-hidden]="controlsOpen() ? null : 'true'" [attr.inert]="controlsOpen() ? null : ''" aria-label="Member navigation">
       @if (session.canUseAgentDesk() || session.canManageTables() || session.canManageClub()) {
-        <button type="button" (click)="notice.set('Shop is not available in this backend.')"><span>▣</span>SHOP</button>
-        <button type="button" (click)="notice.set('Messages are not available in this backend.')"><span>✉</span>MESSAGE</button>
+        <button type="button" (click)="notice.set('Shop is not available in this backend.'); controlsOpen.set(false)"><span>▣</span>SHOP</button>
+        <button type="button" (click)="notice.set('Messages are not available in this backend.'); controlsOpen.set(false)"><span>✉</span>MESSAGE</button>
         <button type="button" disabled title="Tournament APIs are not available"><span>♜</span>MTT</button>
-        <button type="button" (click)="notice.set('Member career is not available in this backend.')"><span>♙</span>CAREER</button>
+        <button type="button" (click)="notice.set('Member career is not available in this backend.'); controlsOpen.set(false)"><span>♙</span>CAREER</button>
       }
-      <button type="button" (click)="openRoleGuide()"><span>♧</span>ROLES</button>
+      <button type="button" (click)="openRoleGuide(); controlsOpen.set(false)"><span>♧</span>ROLES</button>
     </nav>
   } @else if (screen() === 'lobby') {
     <header class="lobby-topbar">
@@ -228,6 +231,13 @@
     }
     @if (tableCreationStep() === 'template') {
       <div class="table-wizard-backdrop">
+        <section class="table-settings-underlay" aria-hidden="true">
+          <span class="eyebrow">TABLE SETUP</span>
+          <h2>Table Settings</h2>
+          <div><span>GAME</span><strong>{{ selectedGameDisplayName }}</strong></div>
+          <div><span>BLINDS</span><strong>{{ smallBlind }} / {{ bigBlind }}</strong></div>
+          <div><span>BUY-IN</span><strong>{{ buyInMin }} – {{ buyInMax }}</strong></div>
+        </section>
         <section class="table-wizard table-template-editor" role="dialog" aria-modal="true" aria-labelledby="template-title">
           <header class="table-wizard-header"><button type="button" (click)="tableCreationStep.set('games')" aria-label="Back to game selection">‹‹</button><h2 id="template-title">{{ selectedGameDisplayName }}</h2><span aria-hidden="true">HD</span></header>
           <div class="table-mode-tabs" role="tablist" aria-label="Table mode">
@@ -381,7 +391,90 @@
             }
           </div>
         </div>
+        <div class="table-edge-controls" aria-label="Table panels">
+          <button class="table-edge-control stand-up-control" type="button" aria-label="Open stand-up drawer" title="Stand up" [attr.aria-expanded]="tableDrawerOpen() === 'stand-up'" (click)="toggleTableDrawer('stand-up')">☰</button>
+          <button class="table-edge-control results-control" type="button" aria-label="Open real-time results" title="Real-time result" [attr.aria-expanded]="tableDrawerOpen() === 'results'" (click)="toggleTableDrawer('results')">▣</button>
+          <button class="table-edge-control history-control" type="button" aria-label="Open hand history" title="Hand history" [attr.aria-expanded]="tableDrawerOpen() === 'history'" (click)="toggleTableDrawer('history')">▤</button>
+          <button class="table-edge-control chat-control" type="button" aria-label="Open table chat" title="Table chat" [attr.aria-expanded]="tableDrawerOpen() === 'chat'" (click)="openTableChat()">•••</button>
+        </div>
       </div>
+      @if (tableDrawerOpen()) {
+        <button class="table-drawer-scrim" type="button" aria-label="Close table panel" (click)="closeTableDrawer()"></button>
+        <section class="table-tool-drawer" [class.from-left]="tableDrawerOpen() === 'stand-up' || tableDrawerOpen() === 'history'" [class.from-right]="tableDrawerOpen() === 'results' || tableDrawerOpen() === 'chat'" role="dialog" aria-modal="true" [attr.aria-labelledby]="'table-drawer-title'">
+          <header class="table-tool-drawer-header">
+            <h2 id="table-drawer-title">{{ tableDrawerOpen() === 'stand-up' ? 'Stand up' : tableDrawerOpen() === 'results' ? 'Real-time result' : tableDrawerOpen() === 'history' ? 'Hand history' : 'Table chat' }}</h2>
+            <button type="button" aria-label="Close table panel" (click)="closeTableDrawer()">×</button>
+          </header>
+          @switch (tableDrawerOpen()) {
+            @case ('stand-up') {
+              <div class="table-tool-drawer-content stand-up-menu">
+                <p class="table-tool-status">{{ currentPlayer ? 'Seat ' + (currentPlayer.seat + 1) + ' · ' + currentPlayer.username : 'You are not seated at this table.' }}</p>
+                <button class="stand-up-menu-item" type="button" disabled title="Seat removal is not supported by this table backend"><span>♧</span>Stand up</button>
+                <button class="stand-up-menu-item has-switch" type="button" disabled aria-disabled="true"><span>◉</span><span>Leave Next Big Blind</span><i>OFF</i></button>
+                <button class="stand-up-menu-item has-switch" type="button" disabled aria-disabled="true"><span>▤</span><span>Sit Out</span><i>OFF</i></button>
+                <button class="stand-up-menu-item menu-section-break" type="button" (click)="closeTableDrawer(); openWallet('club')"><span>♢</span>Top Up</button>
+                <button class="stand-up-menu-item" type="button" disabled aria-disabled="true"><span>◉</span>Auto Rebuy</button>
+                <button class="stand-up-menu-item" type="button" disabled aria-disabled="true"><span>⚙</span>Table Settings</button>
+                <button class="stand-up-menu-item" type="button" disabled aria-disabled="true"><span>◐</span>Theme Settings</button>
+                <button class="stand-up-menu-item" type="button" (click)="closeTableDrawer(); openWallet('club')"><span>♢</span>Cashier</button>
+                <button class="stand-up-menu-item" type="button" (click)="closeTableDrawer(); enterLobby()"><span>⌂</span>Back to club</button>
+                <button class="stand-up-menu-item" type="button" (click)="closeTableDrawer(); goHome()"><span>←</span>Exit</button>
+                <p class="table-tool-note">Seat controls and table settings are not supported by the current table server.</p>
+              </div>
+            }
+            @case ('results') {
+              <div class="table-tool-drawer-content results-drawer-content">
+                <div class="results-table-meta">
+                  <div><span>Table Name</span><strong>{{ snapshot()?.table_name ?? tableId }}</strong></div>
+                  <div><span>Game</span><strong>{{ snapshotGameDisplayName }}</strong></div>
+                  <div><span>Blinds</span><strong>{{ smallBlind }} / {{ bigBlind }}</strong></div>
+                  <div><span>Hand</span><strong>{{ snapshot()?.hand_id ?? 'Waiting for next hand' }}</strong></div>
+                </div>
+                <div class="results-player-table">
+                  <div class="results-player-heading"><span>Nickname</span><span>Stack</span><span>Status</span></div>
+                  @for (player of players; track player.user_id) {
+                    <div class="results-player-row">
+                      <strong>{{ player.username }}</strong>
+                      <span>{{ player.stack | number }}</span>
+                      <span>{{ player.is_sat_out ? 'Sitting out' : player.in_hand ? 'Playing' : 'Waiting' }}</span>
+                    </div>
+                  } @empty {
+                    <p class="table-tool-note">Player results will appear when the table has active players.</p>
+                  }
+                </div>
+                <div class="results-pot-summary"><span>{{ snapshot()?.is_hand_running ? streetName(snapshot()?.street ?? null) : 'Table status' }}</span><strong>{{ snapshot()?.is_hand_running ? 'LIVE' : 'WAITING' }}</strong><span>Pot</span><strong>{{ (snapshot()?.pot ?? 0) | number }}</strong></div>
+                <div class="results-board"><span>BOARD</span><strong>{{ (snapshot()?.community_cards ?? []).join(' ') || 'No community cards' }}</strong></div>
+              </div>
+            }
+            @case ('history') {
+              <div class="table-tool-drawer-content history-drawer-content">
+                <div class="history-tabs"><button type="button" class="selected">Hand Summary</button><button type="button" disabled>Hand Details</button></div>
+                @if (snapshot()?.hand_id && !snapshot()?.is_hand_running) {
+                  <p class="table-tool-status">Most recently completed hand</p>
+                  <div class="table-history-entry">
+                    <span>{{ snapshot()?.hand_id }}</span>
+                    <span>{{ (snapshot()?.community_cards ?? []).join(' ') || 'No board cards' }}</span>
+                    <span>Pot · {{ (snapshot()?.pot ?? 0) | number }}</span>
+                    <button class="table-tool-action" type="button" (click)="closeTableDrawer(); openReplay()">Review hand</button>
+                  </div>
+                } @else {
+                  <p class="table-tool-status">No completed hand is available to review yet.</p>
+                }
+                <p class="table-tool-note">Earlier hand history is not available from the current table backend.</p>
+              </div>
+            }
+            @case ('chat') {
+              <div class="table-tool-drawer-content table-chat-content">
+                <p class="table-chat-empty">Table chat is not connected to the current backend.</p>
+                <form class="table-chat-composer" (submit)="$event.preventDefault()">
+                  <input aria-label="Chat message" placeholder="Chat unavailable" disabled>
+                  <button type="submit" aria-label="Send message" disabled>➤</button>
+                </form>
+              </div>
+            }
+          }
+        </section>
+      }
 
       <div class="table-footer">
         <div class="hand-status"><span class="status-dot" [class.live-dot]="snapshot()?.is_hand_running"></span><span>{{ snapshot()?.is_hand_running ? streetName(snapshot()?.street ?? null) : 'Waiting for players' }}</span><span class="footer-divider"></span><span>{{ players.length }} seated</span></div>
@@ -437,7 +530,6 @@
           @if (isCurrentPlayerSatOut) {
             <button type="button" class="btn-im-back" (click)="onImBack()" [disabled]="sitInPending() || socketStatus() === 'connecting'">{{ sitInPending() ? 'Requesting…' : "I'm back" }}</button>
           }
-          <button type="button" class="btn-chat" (click)="openTableChat()" aria-label="Open table chat" title="Table chat"><span aria-hidden="true">•••</span></button>
         </div>
       </div>
       @if (!isMyTurn && snapshot()?.is_hand_running) {

@@ -48,13 +48,16 @@
             <div class="desk-sort-line"><span>DOWNLINE · {{ visibleMembers().length }}</span><label>Sort <select [value]="memberSort()" (change)="memberSort.set($any($event.target).value)"><option value="chips">Chips</option><option value="fee">Fee</option><option value="winnings">Winnings</option><option value="hands">Hands</option></select></label></div>
             <div class="desk-member-list">
               @for (member of visibleMembers(); track member.id) {
-                <button type="button" class="desk-trade-member" [class.selected]="selectedMemberId() === member.id" (click)="selectedMemberId.set(member.id)">
-                  <span class="desk-avatar">{{ member.name.slice(0, 1) }}</span><span class="desk-member-name"><strong>{{ member.name }}</strong><small>ID: {{ member.id }} · {{ member.lastSeen }}</small></span><strong class="desk-member-chips">{{ member.chips | number:'1.0-2' }}</strong>
-                </button>
+                <div class="desk-trade-member" [class.selected]="selectedMemberIds().includes(member.id)">
+                  <button type="button" class="desk-trade-member-main" [class.current]="selectedMemberId() === member.id" (click)="selectedMemberId.set(member.id)">
+                    <span class="desk-avatar">{{ member.name.slice(0, 1) }}</span><span class="desk-member-name"><strong>{{ member.name }}</strong><small>ID: {{ member.id }} · {{ member.lastSeen }}</small></span><strong class="desk-member-chips">{{ member.chips | number:'1.0-2' }}</strong>
+                  </button>
+                  <label class="desk-recipient-checkbox"><input type="checkbox" [attr.aria-label]="'Select ' + member.name + ' to receive chips'" [checked]="selectedMemberIds().includes(member.id)" (change)="toggleMemberForSendOut(member.id)"></label>
+                </div>
               }
             </div>
             <div class="desk-trade-controls">
-              <label>Amount <input type="number" min="1" step="1" [value]="amount()" (input)="setAmount($any($event.target).value)"></label>
+              <label>Amount <span>{{ selectedMemberIds().length }} selected</span><input type="number" min="1" step="1" [value]="amount()" (input)="setAmount($any($event.target).value)"></label>
               <div class="desk-trade-actions"><button type="button" (click)="runMockTrade('CLAIM BACK')">Claim back</button><button type="button" (click)="runMockTrade('SEND TICKET')">Send ticket</button><button type="button" class="primary" (click)="runMockTrade('SEND OUT')">Send out</button></div>
             </div>
           </section>
@@ -104,6 +107,42 @@
     </main>
     @if (quitPromptOpen()) {
       <div class="desk-confirm-backdrop" (click)="quitPromptOpen.set(false)"><section class="desk-confirm" role="alertdialog" aria-labelledby="desk-quit-title" (click)="$event.stopPropagation()"><h3 id="desk-quit-title">Leave this club?</h3><p>This is a mock action. Your membership will stay active.</p><div><button type="button" (click)="quitPromptOpen.set(false)">Cancel</button><button type="button" class="primary" (click)="confirmMockQuit()">Continue</button></div></section></div>
+    }
+    @if (sendOutConfirmOpen()) {
+      <div class="desk-confirm-backdrop" (click)="cancelSendOutConfirmation()">
+        <section class="desk-confirm desk-send-out-confirm" role="dialog" aria-modal="true" aria-labelledby="desk-send-out-title" (click)="$event.stopPropagation()">
+          <header><h3 id="desk-send-out-title">Send Out</h3><button type="button" aria-label="Cancel send out" (click)="cancelSendOutConfirmation()">×</button></header>
+          <div class="desk-send-out-funds"><span>Available mock funds</span><strong>{{ availableChips() | number:'1.0-2' }}</strong></div>
+          <label class="desk-send-out-amount">Total amount<input type="number" min="1" step="1" [value]="amount()" (input)="setAmount($any($event.target).value)"></label>
+          <div class="desk-send-out-recipients">
+            @for (allocation of sendOutAllocations(); track allocation.member.id) {
+              <div><span>{{ allocation.member.name }}</span><strong>{{ allocation.amount | number:'1.0-2' }}</strong></div>
+            }
+          </div>
+          <div class="desk-send-out-total"><span>Remaining funds after send</span><strong>{{ (availableChips() - amount()) | number:'1.0-2' }}</strong></div>
+          <footer><button type="button" (click)="cancelSendOutConfirmation()">Cancel</button><button type="button" class="primary" [disabled]="amount() < selectedMemberIds().length || amount() > availableChips() || !sendOutAllocations().length" (click)="confirmSendOut()">Confirm</button></footer>
+        </section>
+      </div>
+    }
+    @if (claimBackConfirmOpen()) {
+      <div class="desk-confirm-backdrop" (click)="cancelClaimBackConfirmation()">
+        <section class="desk-confirm desk-send-out-confirm desk-claim-back-confirm" role="dialog" aria-modal="true" aria-labelledby="desk-claim-back-title" (click)="$event.stopPropagation()">
+          <header><h3 id="desk-claim-back-title">Claim Back</h3><button type="button" aria-label="Cancel claim back" (click)="cancelClaimBackConfirmation()">×</button></header>
+          <div class="desk-send-out-funds"><span>Selected players' chips</span><strong>{{ selectedPlayersChipTotal() | number:'1.0-2' }}</strong></div>
+          <label class="desk-send-out-amount">Total amount<input type="number" min="1" step="1" [value]="amount()" (input)="setAmount($any($event.target).value)"></label>
+          <div class="desk-send-out-recipients">
+            @for (allocation of claimBackAllocations(); track allocation.member.id) {
+              <div [class.insufficient-chips]="allocation.amount > allocation.member.chips">
+                <span>{{ allocation.member.name }}<small>Balance {{ allocation.member.chips | number:'1.0-2' }} · Remaining {{ (allocation.member.chips - allocation.amount) | number:'1.0-2' }}</small></span>
+                <strong>{{ allocation.amount | number:'1.0-2' }}</strong>
+              </div>
+            }
+          </div>
+          @if (!canConfirmClaimBack()) { <p class="desk-notice" role="alert">One or more selected players do not have enough chips for their share.</p> }
+          <div class="desk-send-out-total"><span>Club funds after claim</span><strong>{{ (availableChips() + amount()) | number:'1.0-2' }}</strong></div>
+          <footer><button type="button" (click)="cancelClaimBackConfirmation()">Cancel</button><button type="button" class="primary" [disabled]="!canConfirmClaimBack()" (click)="confirmClaimBack()">Confirm</button></footer>
+        </section>
+      </div>
     }
   </section>
 </div>

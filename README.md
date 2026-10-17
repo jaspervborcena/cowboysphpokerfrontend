@@ -26,6 +26,7 @@ The Angular client implements clubhouse, lobby, live-table, union-table, and han
 - Live club tables are membership-gated and show actual empty/error results rather than demo rows. Mock Club and Global Room cards open isolated preview lobbies; only the configured club connects to backend data, and global play/invitation-based club switching are not connected.
 - Server-provided disconnect and sit-out state only. Disconnect protection, timers, and actions remain backend-authoritative.
 - An authenticated wallet dashboard that ensures/reads global playmoney, reads the signed-in member's club balance and authorized treasury balance, and submits idempotent member and inter-club transfers. It uses the documented wallet APIs, never reads wallet documents from Firestore, and keeps global playmoney separate from club chips.
+- A Staff Desk cashier preview with right-side recipient checkboxes, equal whole-chip allocation for multi-member send-out and claim-back, confirmation previews, mock-fund updates, and one mock trade record per recipient. It starts with 10,000 preview chips and is explicitly labeled mock; it does not call wallet APIs or update real member/home balances.
 
 This is not yet a production-ready end-to-end client. The API and websocket backend must implement and enforce the contracts below. Home-screen club cards are mock previews; the live lobby does not substitute sample rows when table data is empty or unavailable.
 
@@ -96,7 +97,7 @@ Club scope reads `GET /clubs/{club_id}/members/me/wallet` for the authenticated 
 
 The lobby's `CLUB WALLET` control shows the treasury amount to owners/managers and the member's available club-chip amount to agents/players. Cowboys Global Room currently uses the configured runtime `clubId` for this wallet read because the global-room preview has no backend club ID of its own; other preview rooms do not show a wallet amount. The displayed value refreshes after returning from wallet operations.
 
-The current UI requires a recipient member ID or destination club ID because the supplied API has no member/club search endpoint. It does not expose platform-admin club provisioning. The API also has no transaction-history, table-stack, or player-initiated cash-out request endpoint, so those views/actions are not fabricated. Wallet data is never read directly from Firestore.
+The Wallet Dashboard currently requires a recipient member ID or destination club ID because the supplied API has no member/club search endpoint. The Staff Desk cashier is a separate mock preview and must not be treated as a live transfer flow. The API also has no transaction-history, table-stack, or player-initiated cash-out request endpoint, so those views/actions are not fabricated. Wallet data is never read directly from Firestore.
 
 ## Backend contract and known gaps
 
@@ -162,7 +163,7 @@ The next phase should focus on integration and hardening rather than more visual
 2. Replace sample lobby/table data and hardcoded development IDs with configured, live backend data.
 3. Enforce club/union roles and all privileged REST/websocket actions on the server.
 4. Move disconnect protection, auto-sit-out, reconnect, and turn resolution to authoritative server logic.
-5. Add seat-leave, cash-out, buy-in ledger, and club/union cashier flows.
+5. Replace the mock Staff Desk cashier with authenticated member lookup and server-authoritative multi-recipient transfers; add seat-leave, cash-out, and buy-in ledger workflows.
 6. Add club invitation/acceptance and union formation workflows that link existing global accounts to club membership, plus rake allocation and durable multi-instance table state.
 
 ## Files to watch
