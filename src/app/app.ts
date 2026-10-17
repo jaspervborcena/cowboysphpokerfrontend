@@ -11,6 +11,7 @@ import { AppRuntimeConfig } from './core/runtime-config';
 import { UserSessionStore } from './core/user-session.store';
 import { HandReplayContainerComponent } from './features/hand-replay/hand-replay-container.component';
 import { WalletDashboardComponent } from './features/wallet-dashboard/wallet-dashboard.component';
+import { StaffDeskComponent, type StaffDeskSection } from './features/staff-desk/staff-desk.component';
 import { BlindEntryChoice } from './features/table/rules/table-rules.types';
 import { TableRulesService } from './features/table/rules/table-rules.service';
 import tableCreationDefaults from './data/table-creation-defaults.json';
@@ -87,7 +88,10 @@ interface HomeClubCard {
   logoColor?: string;
   creatorId?: string;
   notice?: string;
+  localTreasuryBalance?: number;
 }
+
+const LOCAL_CLUB_STARTING_TREASURY = 10_000;
 
 const emptyGameCatalog: GameCatalogResponse = {
   active_game_id: '',
@@ -105,7 +109,7 @@ const localClubGameCatalog: GameCatalogResponse = {
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, DecimalPipe, HandReplayContainerComponent, WalletDashboardComponent],
+  imports: [FormsModule, DecimalPipe, HandReplayContainerComponent, WalletDashboardComponent, StaffDeskComponent],
   templateUrl: './table.html'
 })
 export class App implements OnInit, OnDestroy {
@@ -119,6 +123,8 @@ export class App implements OnInit, OnDestroy {
   tableUnionId = signal<string | null>(null);
   unionCreateOpen = signal(false);
   lobbyQuickMenuOpen = signal(false);
+  staffDeskOpen = signal(false);
+  staffDeskSection = signal<StaffDeskSection>('cashier');
   walletOpen = signal(false);
   walletInitialScope = signal<'global' | 'club'>('global');
   seatConfirmationOpen = signal(false);
@@ -300,7 +306,11 @@ export class App implements OnInit, OnDestroy {
   tableSize = signal<number>(tableCreationDefaults.default_table.create_request_defaults.table_size);
   seatIndex = 0;
   buyInAmount = 500;
+  globalWalletBalance = signal<number | null>(null);
+  globalWalletLoading = signal(false);
+  globalWalletError = signal(false);
   availableWalletBalance = signal<number | null>(null);
+  clubTreasuryBalance = signal<number | null>(null);
   walletBalanceLoading = signal(false);
   walletBalanceError = signal(false);
   localPreviewTable = signal(false);
@@ -336,6 +346,8 @@ export class App implements OnInit, OnDestroy {
   private pendingBuyInSignature: string | null = null;
   private seatRequestAwaitingSnapshot = false;
   private unsubscribeAuthState: (() => void) | null = null;
+  private globalWalletRequestId = 0;
+  private globalWalletLoadUserId = '';
   sitInPending = signal(false);
   blindDecisionPending = signal(false);
 
@@ -352,6 +364,7 @@ export class App implements OnInit, OnDestroy {
 
     this.unsubscribeAuthState = this.firebaseAuth.onAuthStateChanged(async (user) => {
       if (!user) {
+        this.clearGlobalWalletBalance();
         this.session.clearSession();
         this.clearClubData();
         return;
@@ -359,6 +372,7 @@ export class App implements OnInit, OnDestroy {
 
       const idToken = await this.firebaseAuth.getCurrentIdToken();
       if (!idToken) {
+        this.clearGlobalWalletBalance();
         this.session.clearSession();
         this.session.membershipStatus.set('unavailable');
         return;
@@ -369,6 +383,7 @@ export class App implements OnInit, OnDestroy {
         user.displayName || user.email || user.phoneNumber || 'Authenticated player',
         idToken
       );
+      void this.loadGlobalWalletBalance();
       this.loadMemberSession();
     });
   }
@@ -406,6 +421,29 @@ export class App implements OnInit, OnDestroy {
   get activeClubRole(): string {
     if (this.isActiveLocalClubOwner) return 'OWNER';
     return this.isActiveMockClubPreview ? 'PREVIEW' : this.session.role();
+  }
+
+  get isActiveGlobalClub(): boolean {
+    return this.currentClubCard?.kind === 'global';
+  }
+
+  get canOpenClubWallet(): boolean {
+    return this.session.membershipStatus() === 'verified'
+      && (this.activeClubDisplayId === this.clubId || this.activeClubDisplayId === 'global-room');
+  }
+
+  get lobbyWalletBalance(): number | null {
+    if (this.isActiveLocalClubOwner) {
+      return this.currentClubCard?.localTreasuryBalance ?? LOCAL_CLUB_STARTING_TREASURY;
+    }
+    return ['OWNER', 'MANAGER'].includes(this.session.role())
+      ? this.clubTreasuryBalance()
+      : this.availableWalletBalance();
+  }
+
+  get lobbyWalletBalanceLabel(): string {
+    if (this.isActiveLocalClubOwner) return 'LOCAL TREASURY';
+    return ['OWNER', 'MANAGER'].includes(this.session.role()) ? 'TREASURY' : 'AVAILABLE';
   }
 
   get selectedGameDisplayName(): string {
@@ -463,7 +501,7 @@ export class App implements OnInit, OnDestroy {
     return this.homeClubCards.find((club) => club.id === activeId);
   }
 
-  private get isActiveLocalClubOwner(): boolean {
+  get isActiveLocalClubOwner(): boolean {
     return !!this.currentClubCard?.creatorId
       && this.currentClubCard.creatorId === (this.session.firebaseUid() || this.session.memberId());
   }
@@ -567,13 +605,30 @@ export class App implements OnInit, OnDestroy {
     this.controlsOpen.update((open) => !open);
   }
 
+  openStaffDesk(section?: StaffDeskSection): void {
+    const localOwner = this.isActiveLocalClubOwner;
+    const mockPreview = this.isActiveMockClubPreview || localOwner;
+    const role = localOwner ? 'OWNER' : this.session.role();
+    if (!mockPreview && (this.session.membershipStatus() !== 'verified'
+      || !['AGENT', 'MANAGER', 'OWNER'].includes(role))) return;
+    this.staffDeskSection.set(section ?? (role === 'AGENT' ? 'cashier' : 'overview'));
+    this.staffDeskOpen.set(true);
+  }
+
   openWallet(scope: 'global' | 'club'): void {
+    if (scope === 'club' && !this.canOpenClubWallet) {
+      this.notice.set('An active membership in this club is required to view its wallet.');
+      return;
+    }
     this.walletInitialScope.set(scope);
     this.walletOpen.set(true);
   }
 
   closeWallet(): void {
     this.walletOpen.set(false);
+    if (this.walletInitialScope() === 'club' && this.canOpenClubWallet) {
+      void this.loadMemberWalletBalance();
+    }
   }
 
   toggleHomeMenu(): void {
@@ -609,6 +664,7 @@ export class App implements OnInit, OnDestroy {
       logoMark: logo.mark,
       logoColor: logo.color,
       creatorId,
+      localTreasuryBalance: LOCAL_CLUB_STARTING_TREASURY,
       notice: this.clubNoticeDraft().trim()
     }];
     this.persistLocalClubs();
@@ -632,7 +688,10 @@ export class App implements OnInit, OnDestroy {
     const memberId = user?.uid || label;
     const displayName = user?.displayName || user?.email || user?.phoneNumber || label.split('@')[0] || 'Authenticated player';
 
-    if (idToken) this.session.setAuthenticatedIdentity(memberId, displayName, idToken);
+    if (idToken) {
+      this.session.setAuthenticatedIdentity(memberId, displayName, idToken);
+      void this.loadGlobalWalletBalance();
+    }
     this.notice.set(`Signed in as ${displayName}. Fetching club membership...`);
     this.loginError.set('');
     this.signingIn.set(false);
@@ -647,11 +706,52 @@ export class App implements OnInit, OnDestroy {
 
   async signOutCurrentUser(): Promise<void> {
     await this.firebaseAuth.signOut();
+    this.clearGlobalWalletBalance();
     this.session.clearSession();
     this.loginIdentifier.set('');
     this.loginPassword.set('');
     this.loginError.set('');
     this.notice.set('Signed out.');
+  }
+
+  async loadGlobalWalletBalance(): Promise<void> {
+    const userId = this.session.firebaseUid();
+    if (!userId || !this.session.firebaseIdToken()) {
+      this.clearGlobalWalletBalance();
+      return;
+    }
+    if (this.globalWalletLoading() && this.globalWalletLoadUserId === userId) return;
+    if (this.globalWalletLoadUserId === userId && this.globalWalletBalance() !== null) return;
+
+    const requestId = ++this.globalWalletRequestId;
+    this.globalWalletLoadUserId = userId;
+    this.globalWalletLoading.set(true);
+    this.globalWalletError.set(false);
+    try {
+      const idToken = await this.firebaseAuth.getCurrentIdToken(true);
+      if (!idToken) throw new Error('Firebase authentication is unavailable.');
+      const wallet = await firstValueFrom(this.clubApi.ensureGlobalWallet(this.baseUrl(), idToken));
+      if (requestId !== this.globalWalletRequestId || this.session.firebaseUid() !== userId) return;
+      if (wallet.user_id !== userId || !Number.isSafeInteger(wallet.balance) || wallet.balance < 0) {
+        throw new Error('The global wallet response does not match the signed-in account.');
+      }
+      this.globalWalletBalance.set(wallet.balance);
+    } catch {
+      if (requestId !== this.globalWalletRequestId) return;
+      this.globalWalletLoadUserId = '';
+      this.globalWalletBalance.set(null);
+      this.globalWalletError.set(true);
+    } finally {
+      if (requestId === this.globalWalletRequestId) this.globalWalletLoading.set(false);
+    }
+  }
+
+  private clearGlobalWalletBalance(): void {
+    this.globalWalletRequestId += 1;
+    this.globalWalletLoadUserId = '';
+    this.globalWalletBalance.set(null);
+    this.globalWalletLoading.set(false);
+    this.globalWalletError.set(false);
   }
 
   async continueWithIdentifier(): Promise<void> {
@@ -882,6 +982,13 @@ export class App implements OnInit, OnDestroy {
     this.localPreviewTable.set(false);
     this.lobbyGame.set(game);
     this.screen.set('lobby');
+    if (this.canOpenClubWallet) {
+      void this.loadMemberWalletBalance();
+    } else {
+      this.availableWalletBalance.set(null);
+      this.clubTreasuryBalance.set(null);
+      this.walletBalanceError.set(false);
+    }
     if (this.isActiveLocalClubOwner) {
       this.lobbyTables = this.localClubTables.get(this.activeClubDisplayId) ?? [];
       this.unions.set([]);
@@ -971,8 +1078,11 @@ export class App implements OnInit, OnDestroy {
   }
 
   openLobbyMessages(): void {
-    this.lobbyQuickMenuOpen.set(false);
-    this.notice.set('Messages are not available in this backend.');
+    this.openLobbyStaffDesk('messages');
+  }
+
+  openLobbyStaffDesk(section: StaffDeskSection): void {
+    this.openStaffDesk(section);
   }
 
   openLobbyShortcutUnavailable(label: string): void {
@@ -1207,6 +1317,7 @@ export class App implements OnInit, OnDestroy {
         if (this.session.firebaseIdToken() !== idToken) return;
         this.session.setVerifiedMember(membership.user_id, membership.username, membership.role, idToken);
         this.notice.set(`Authenticated as ${membership.username} (${membership.role}).`);
+        if (this.screen() === 'lobby' && this.canOpenClubWallet) void this.loadMemberWalletBalance();
         this.loadLobbyData();
       },
       error: (error: unknown) => {
@@ -1508,6 +1619,7 @@ export class App implements OnInit, OnDestroy {
     const idToken = this.session.firebaseIdToken();
     if (!idToken || this.session.membershipStatus() !== 'verified') {
       this.availableWalletBalance.set(null);
+      this.clubTreasuryBalance.set(null);
       this.walletBalanceError.set(false);
       return;
     }
@@ -1521,6 +1633,7 @@ export class App implements OnInit, OnDestroy {
       const wallet = await firstValueFrom(this.clubApi.getMemberWalletSummary(this.baseUrl(), this.clubId, idToken));
       if (wallet.club_id !== this.clubId
         || wallet.user_id !== this.session.memberId()
+        || wallet.role !== this.session.role()
         || wallet.currency_type !== 'CLUB_CHIPS'
         || !Number.isFinite(wallet.available_balance)
         || wallet.available_balance < 0
@@ -1529,9 +1642,24 @@ export class App implements OnInit, OnDestroy {
         throw new Error('Wallet summary did not match the signed-in club member.');
       }
       this.availableWalletBalance.set(wallet.available_balance);
+      if (['OWNER', 'MANAGER'].includes(this.session.role())) {
+        try {
+          const treasury = await firstValueFrom(this.clubApi.getClubTreasury(this.baseUrl(), this.clubId, idToken));
+          this.clubTreasuryBalance.set(
+            treasury.club_id === this.clubId && treasury.currency_type === 'CLUB_CHIPS'
+              ? treasury.chip_balance
+              : null
+          );
+        } catch {
+          this.clubTreasuryBalance.set(null);
+        }
+      } else {
+        this.clubTreasuryBalance.set(null);
+      }
       return wallet.available_balance;
     } catch {
       this.availableWalletBalance.set(null);
+      this.clubTreasuryBalance.set(null);
       this.walletBalanceError.set(true);
       return null;
     } finally {

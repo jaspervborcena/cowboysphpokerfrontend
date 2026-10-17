@@ -1,5 +1,5 @@
 {
-  "apiBase": "http://127.0.0.1:8000",
+  "apiBase": "https://cowboys-wallet-api-4rusyqoipa-de.a.run.app",
   "clubId": "demo",
   "firebase": null
 }

@@ -1,196 +1,201 @@
 import { TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
-import { WalletDashboardMockService } from './wallet-dashboard.mock.service';
+import { HttpErrorResponse } from '@angular/common/http';
+import { of, throwError } from 'rxjs';
+import { ClubApiService } from '../../core/club-api.service';
+import { FirebaseAuthService } from '../../core/firebase-auth.service';
+import { UserSessionStore } from '../../core/user-session.store';
 import { WalletDashboardComponent } from './wallet-dashboard.component';
-import { WalletDashboard } from './wallet-dashboard.models';
-
-const mockDashboard: WalletDashboard = {
-  mock_only: true,
-  viewer: {
-    user_id: 'user-agent-player-a',
-    username: 'Alex',
-    club_id: 'club-demo',
-    roles: ['AGENT', 'PLAYER']
-  },
-  global_wallet: {
-    wallet_id: 'global-wallet-user-agent-player-a',
-    wallet_type: 'GLOBAL_PLAYMONEY',
-    currency_type: 'GLOBAL_PLAYMONEY',
-    balance: 20000,
-    updated_at: '2026-10-16T08:00:00Z'
-  },
-  onboarding_preview: {
-    account_creation_grant: {
-      wallet_type: 'GLOBAL_PLAYMONEY',
-      currency_type: 'GLOBAL_PLAYMONEY',
-      amount: 20000,
-      status: 'mock_only',
-      trigger: 'firebase_account_created',
-      api_available: false
-    },
-    club_creation_grant: {
-      wallet_type: 'CLUB_TREASURY',
-      currency_type: 'CLUB_CHIPS',
-      amount: 10000,
-      status: 'live',
-      endpoint: 'POST /platform/clubs',
-      owner_personal_balance_after_creation: 0
-    }
-  },
-  club_wallets: [
-    {
-      wallet_id: 'club-demo-treasury',
-      wallet_type: 'CLUB_TREASURY',
-      currency_type: 'CLUB_CHIPS',
-      club_id: 'club-demo',
-      owner_user_id: null,
-      balance: 300000,
-      updated_at: '2026-10-16T08:00:00Z'
-    },
-    {
-      wallet_id: 'club-demo-agent-user-agent-player-a',
-      wallet_type: 'CLUB_AGENT',
-      currency_type: 'CLUB_CHIPS',
-      club_id: 'club-demo',
-      owner_user_id: 'user-agent-player-a',
-      balance: 48000,
-      updated_at: '2026-10-16T08:10:00Z'
-    },
-    {
-      wallet_id: 'club-demo-player-user-agent-player-a',
-      wallet_type: 'CLUB_PLAYER',
-      currency_type: 'CLUB_CHIPS',
-      club_id: 'club-demo',
-      owner_user_id: 'user-agent-player-a',
-      available_balance: 14600,
-      in_play_balance: 1200,
-      updated_at: '2026-10-16T08:12:00Z'
-    }
-  ],
-  table_stacks: [{
-    table_id: 'club-demo-main',
-    table_name: 'Main Table',
-    seat_index: 3,
-    stack: 1200,
-    currency_type: 'CLUB_CHIPS',
-    status: 'sitting_in'
-  }],
-  recent_transactions: [
-    {
-      transaction_id: 'mock-agent-distribution-001',
-      wallet_type: 'CLUB_AGENT',
-      club_id: 'club-demo',
-      type: 'AGENT_TO_PLAYER_TRANSFER',
-      amount: 2000,
-      direction: 'debit',
-      counterparty_user_id: 'user-player-b',
-      status: 'completed',
-      created_at: '2026-10-16T08:10:00Z'
-    },
-    {
-      transaction_id: 'mock-player-buy-in-001',
-      wallet_type: 'CLUB_PLAYER',
-      club_id: 'club-demo',
-      type: 'TABLE_BUY_IN',
-      amount: 1200,
-      direction: 'debit',
-      table_id: 'club-demo-main',
-      status: 'completed',
-      created_at: '2026-10-16T08:12:00Z'
-    },
-    {
-      transaction_id: 'mock-global-grant-001',
-      wallet_type: 'GLOBAL_PLAYMONEY',
-      club_id: null,
-      type: 'PLAYMONEY_GRANT',
-      amount: 20000,
-      direction: 'credit',
-      status: 'completed',
-      created_at: '2026-10-16T08:00:00Z'
-    }
-  ],
-  cashout_requests: [{
-    request_id: 'mock-cashout-request-001',
-    wallet_type: 'CLUB_PLAYER',
-    club_id: 'club-demo',
-    user_id: 'user-agent-player-a',
-    amount: 600,
-    status: 'pending_mock',
-    player_request_api_available: false,
-    operator_fulfillment_endpoint: 'POST /clubs/{club_id}/wallet/claim-back',
-    blocked_while_in_play_balance_nonzero: true
-  }]
-};
 
 describe('WalletDashboardComponent', () => {
+  let api: jasmine.SpyObj<ClubApiService>;
+  let session: UserSessionStore;
+
   beforeEach(() => {
+    api = jasmine.createSpyObj<ClubApiService>('ClubApiService', [
+      'ensureGlobalWallet',
+      'getGlobalWallet',
+      'getMemberWalletSummary',
+      'getClubTreasury',
+      'sendOutClubChips',
+      'claimBackClubChips',
+      'transferClubTreasury'
+    ]);
+    api.ensureGlobalWallet.and.returnValue(of({
+      wallet_id: 'global-1',
+      wallet_type: 'GLOBAL_PLAYMONEY',
+      currency_type: 'GLOBAL_PLAYMONEY',
+      user_id: 'member-1',
+      balance: 20000,
+      created: true
+    }));
+    api.getGlobalWallet.and.returnValue(of({
+      wallet_id: 'global-1',
+      wallet_type: 'GLOBAL_PLAYMONEY',
+      currency_type: 'GLOBAL_PLAYMONEY',
+      user_id: 'member-1',
+      balance: 20000
+    }));
+    api.getMemberWalletSummary.and.returnValue(of({
+      club_id: 'demo',
+      user_id: 'member-1',
+      role: 'OWNER',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 12000,
+      in_play_balance: 500
+    }));
+    api.getClubTreasury.and.returnValue(of({
+      club_id: 'demo',
+      currency_type: 'CLUB_CHIPS',
+      chip_balance: 10000
+    }));
+    api.sendOutClubChips.and.returnValue(of({
+      club_id: 'demo',
+      transaction_id: 'transfer-1',
+      type: 'SEND_OUT',
+      amount: 600,
+      from_user_id: 'member-1',
+      to_user_id: 'player-2',
+      status: 'completed'
+    }));
+    api.claimBackClubChips.and.returnValue(of({
+      club_id: 'demo',
+      transaction_id: 'transfer-2',
+      type: 'CLAIM_BACK',
+      amount: 600,
+      from_user_id: 'player-2',
+      to_user_id: 'member-1',
+      status: 'completed'
+    }));
+    api.transferClubTreasury.and.returnValue(of({
+      transaction_id: 'transfer-3',
+      type: 'INTER_CLUB_TRANSFER',
+      from_club_id: 'demo',
+      to_club_id: 'club-other',
+      amount: 600,
+      status: 'completed'
+    }));
     TestBed.configureTestingModule({
       imports: [WalletDashboardComponent],
-      providers: [{ provide: WalletDashboardMockService, useValue: { load: () => of(mockDashboard) } }]
+      providers: [
+        { provide: ClubApiService, useValue: api },
+        { provide: FirebaseAuthService, useValue: { getCurrentIdToken: () => Promise.resolve('firebase-token') } }
+      ]
     });
+    session = TestBed.inject(UserSessionStore);
+    session.setVerifiedMember('member-1', 'Alex', 'OWNER');
   });
 
-  it('keeps player and agent wallets separate and hides treasury from a dual-role member', () => {
+  it('ensures the persistent global wallet and explains the reserve behavior', async () => {
+    const fixture = TestBed.createComponent(WalletDashboardComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance;
+    expect(api.ensureGlobalWallet).toHaveBeenCalledWith('http://127.0.0.1:8000', 'firebase-token');
+    expect(component.globalWallet()?.balance).toBe(20000);
+    expect(component.globalWalletCreated()).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain('does not debit the platform reserve');
+  });
+
+  it('uses the read-only global wallet route when refreshing', async () => {
+    const fixture = TestBed.createComponent(WalletDashboardComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const component = fixture.componentInstance;
+    component.refresh();
+    await fixture.whenStable();
+    expect(api.getGlobalWallet).toHaveBeenCalledWith('http://127.0.0.1:8000', 'firebase-token');
+  });
+
+  it('loads the authenticated member balance and authorized treasury balance', async () => {
     const fixture = TestBed.createComponent(WalletDashboardComponent);
     fixture.componentInstance.initialScope = 'club';
     fixture.detectChanges();
-
-    const component = fixture.componentInstance;
-    expect(component.availableClubWallets.map((wallet) => wallet.wallet_type)).toEqual(['CLUB_AGENT', 'CLUB_PLAYER']);
-    expect(component.selectedClubWalletType()).toBe('CLUB_PLAYER');
-    expect(component.selectedClubWallet?.available_balance).toBe(14600);
-    expect(component.selectedClubWallet?.in_play_balance).toBe(1200);
-
-    component.selectedClubWalletType.set('CLUB_AGENT');
-    expect(component.selectedClubWallet?.balance).toBe(48000);
-    expect(component.selectedTableStacks).toEqual([]);
-  });
-
-  it('keeps global playmoney and table stacks in their own scopes', () => {
-    const fixture = TestBed.createComponent(WalletDashboardComponent);
+    await fixture.whenStable();
     fixture.detectChanges();
 
     const component = fixture.componentInstance;
-    expect(component.activeScope()).toBe('global');
-    expect(component.dashboard()?.global_wallet.balance).toBe(20000);
-    expect(component.visibleTransactions.map((transaction) => transaction.wallet_type)).toEqual(['GLOBAL_PLAYMONEY']);
-    expect(component.selectedTableStacks).toEqual([]);
-
-    component.activeScope.set('club');
-    component.selectedClubWalletType.set('CLUB_PLAYER');
-    expect(component.selectedTableStacks.reduce((total, stack) => total + stack.stack, 0)).toBe(1200);
-    expect(component.selectedClubWallet?.in_play_balance).toBe(1200);
+    expect(api.getMemberWalletSummary).toHaveBeenCalledWith('http://127.0.0.1:8000', 'demo', 'firebase-token');
+    expect(api.getClubTreasury).toHaveBeenCalledWith('http://127.0.0.1:8000', 'demo', 'firebase-token');
+    expect(component.clubWallet()?.available_balance).toBe(12000);
+    expect(component.clubTreasury()?.chip_balance).toBe(10000);
+    expect(fixture.nativeElement.textContent).toContain('Agent and player roles use the same member balances');
   });
 
-  it('creates a pending mock cash-out request without changing wallet balances', () => {
+  it('sends chips to a member with a generated idempotency transaction ID', async () => {
     const fixture = TestBed.createComponent(WalletDashboardComponent);
     fixture.componentInstance.initialScope = 'club';
     fixture.detectChanges();
-
+    await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.cashoutAmount.set(600);
-    const availableBefore = component.selectedClubWallet?.available_balance;
-    const inPlayBefore = component.selectedClubWallet?.in_play_balance;
-    fixture.detectChanges();
+    component.transferTarget.set('player-2');
+    component.transferAmount.set(600);
 
-    (fixture.nativeElement.querySelector('.wallet-cashout-submit') as HTMLButtonElement).click();
-    fixture.detectChanges();
+    await component.submitTransfer();
 
-    expect(component.cashoutRequestsForViewer.length).toBe(2);
-    expect(component.cashoutRequestsForViewer[0].status).toBe('pending_mock');
-    expect(component.cashoutRequestsForViewer[0].blocked_while_in_play_balance_nonzero).toBeTrue();
-    expect(component.selectedClubWallet?.available_balance).toBe(availableBefore);
-    expect(component.selectedClubWallet?.in_play_balance).toBe(inPlayBefore);
-    expect(fixture.nativeElement.textContent).toContain('No wallet balance was changed');
+    const [, clubId, token, request] = api.sendOutClubChips.calls.mostRecent().args;
+    expect(clubId).toBe('demo');
+    expect(token).toBe('firebase-token');
+    expect(request.user_id).toBe('player-2');
+    expect(request.amount).toBe(600);
+    expect(request.transaction_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(component.transferNotice()).toContain('Chips sent to player-2');
+    expect(api.getMemberWalletSummary).toHaveBeenCalledTimes(2);
   });
 
-  it('shows the documented onboarding grant amounts and API availability', () => {
+  it('shows API errors and reuses the same transaction ID when retrying unchanged details', async () => {
+    api.sendOutClubChips.and.returnValues(
+      throwError(() => new HttpErrorResponse({
+        status: 409,
+        error: { message: 'Insufficient balance', trace_id: 'trace-123' }
+      })),
+      of({
+        club_id: 'demo',
+        transaction_id: 'transfer-retry',
+        type: 'SEND_OUT',
+        amount: 600,
+        from_user_id: 'member-1',
+        to_user_id: 'player-2',
+        status: 'completed'
+      })
+    );
     const fixture = TestBed.createComponent(WalletDashboardComponent);
+    fixture.componentInstance.initialScope = 'club';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.transferTarget.set('player-2');
+    component.transferAmount.set(600);
+
+    await component.submitTransfer();
+    const firstTransactionId = api.sendOutClubChips.calls.first().args[3].transaction_id;
+    expect(component.transferNotice()).toBe('Insufficient balance Reference: trace-123');
+
+    await component.submitTransfer();
+
+    expect(api.sendOutClubChips.calls.mostRecent().args[3].transaction_id).toBe(firstTransactionId);
+    expect(component.transferNotice()).toContain('Chips sent to player-2');
+  });
+
+  it('does not show member transfer controls to a player', async () => {
+    session.setVerifiedMember('member-1', 'Alex', 'PLAYER');
+    api.getMemberWalletSummary.and.returnValue(of({
+      club_id: 'demo',
+      user_id: 'member-1',
+      role: 'PLAYER',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 12000,
+      in_play_balance: 500
+    }));
+    const fixture = TestBed.createComponent(WalletDashboardComponent);
+    fixture.componentInstance.initialScope = 'club';
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('20,000');
-    expect(fixture.nativeElement.textContent).toContain('API unavailable');
-    expect(fixture.nativeElement.textContent).toContain('POST /platform/clubs');
-    expect(fixture.nativeElement.textContent).toContain('owner personal balance starts at 0');
+    expect(fixture.nativeElement.querySelector('.wallet-transfer-submit')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Only an authorized owner, manager, or assigned agent');
   });
 });

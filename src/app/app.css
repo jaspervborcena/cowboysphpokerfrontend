@@ -446,6 +446,11 @@ input:focus { border-color: #63add3; box-shadow: 0 0 0 2px #58b5e51f; }
 .lobby-club-name span { color: #91b2c6; font-size: 7px; }
 .lobby-wallet { display: flex; gap: 5px; align-items: center; margin-left: auto; padding: 6px 7px; border: 1px solid #286188; border-radius: 4px; background: #103552; color: #a7dbea; font-size: 7px; cursor: pointer; }
 .lobby-wallet > span:first-child { color: #6acfff; font-size: 11px; }
+.lobby-wallet-balance { min-width: 0; display: grid; gap: 1px; text-align: left; }
+.lobby-wallet-balance > span { min-width: 0; display: grid; gap: 1px; }
+.lobby-wallet-balance small { max-width: 94px; overflow: hidden; color: #82a9bf; font-size: 5px; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-wallet-balance strong { color: #d7f5ff; font-size: 9px; font-variant-numeric: tabular-nums; }
+.lobby-wallet:disabled { opacity: .5; cursor: not-allowed; }
 .lobby-screen { height: calc(100dvh - 118px); min-height: 502px; overflow-y: auto; padding: 0 11px 15px; background: #071d30; scrollbar-width: thin; scrollbar-color: #24506c transparent; }
 .club-lobby-banner { position: relative; height: 104px; display: flex; align-items: center; justify-content: space-between; overflow: hidden; margin: 0 -11px 9px; padding: 11px 14px; border-bottom: 1px solid #277ba4; background: radial-gradient(ellipse at 80% 50%, #17608a, transparent 55%), linear-gradient(110deg, #0c3553, #0b2038 60%, #102c4b); }
 .club-lobby-banner::after { position: absolute; right: 42%; bottom: -40px; width: 110px; height: 110px; border: 1px solid #89d8fa33; border-radius: 50%; box-shadow: 0 0 0 10px #89d8fa0a, 0 0 0 22px #89d8fa08; content: ''; }
@@ -587,6 +592,7 @@ input:focus { border-color: #63add3; box-shadow: 0 0 0 2px #58b5e51f; }
 .lobby-shortcut:disabled { opacity: .62; }
 .lobby-bottom-menu { position: fixed; z-index: 12; right: max(8px, calc((100vw - 430px) / 2 + 8px)); bottom: 19px; width: 48px; height: 48px; border-color: #214e6b; font-size: 20px; }
 .lobby-shortcut-bar { position: fixed; z-index: 14; right: max(12px, calc((100vw - 430px) / 2 + 12px)); bottom: 12px; left: max(12px, calc((100vw - 430px) / 2 + 12px)); min-height: 56px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) 34px; align-items: center; padding: 4px 6px; border: 1px solid #173b53; border-radius: 32px; background: #041727f5; box-shadow: 0 8px 24px #000a; }
+.lobby-shortcut-bar.above-staff-desk { z-index: 120; }
 .lobby-shortcut-bar button { min-width: 0; min-height: 46px; display: grid; align-content: center; justify-items: center; gap: 2px; border: 0; background: transparent; color: #8faec1; }
 .lobby-shortcut-bar button span { color: #a8c5d5; font-size: 19px; line-height: 1; }
 .lobby-shortcut-bar button small { overflow: hidden; max-width: 100%; color: #8ba9bc; font-size: 7px; text-overflow: ellipsis; }

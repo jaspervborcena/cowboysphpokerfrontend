@@ -28,9 +28,16 @@ describe('App', () => {
           signInWithPhonePassword: () => of({ firebase_custom_token: '' }),
           requestPhonePasswordReset: () => of({}),
           confirmPhonePasswordReset: () => of({}),
+          ensureGlobalWallet: () => of({ wallet_id: 'global-1', wallet_type: 'GLOBAL_PLAYMONEY', currency_type: 'GLOBAL_PLAYMONEY', user_id: 'player-1', balance: 20000, created: true }),
+          getGlobalWallet: () => of({ wallet_id: 'global-1', wallet_type: 'GLOBAL_PLAYMONEY', currency_type: 'GLOBAL_PLAYMONEY', user_id: 'player-1', balance: 20000 }),
+          getClubTreasury: () => of({ club_id: 'demo', currency_type: 'CLUB_CHIPS', chip_balance: 10000 }),
+          sendOutClubChips: () => of({}),
+          claimBackClubChips: () => of({}),
+          transferClubTreasury: () => of({}),
           getMemberWalletSummary: () => of({
             club_id: 'demo',
             user_id: 'player-1',
+            role: 'PLAYER',
             currency_type: 'CLUB_CHIPS',
             available_balance: 1000,
             in_play_balance: 0
@@ -128,12 +135,14 @@ describe('App', () => {
     spyOn(walletApi, 'getMemberWalletSummary').and.returnValues(of({
       club_id: 'club-1',
       user_id: 'player-1',
+      role: 'PLAYER',
       currency_type: 'CLUB_CHIPS',
       available_balance: 1000,
       in_play_balance: 0
     }), of({
       club_id: 'club-1',
       user_id: 'player-1',
+      role: 'PLAYER',
       currency_type: 'CLUB_CHIPS',
       available_balance: 500,
       in_play_balance: 500
@@ -215,6 +224,7 @@ describe('App', () => {
     spyOn(walletApi, 'getMemberWalletSummary').and.returnValue(of({
       club_id: 'club-1',
       user_id: 'player-1',
+      role: 'PLAYER',
       currency_type: 'CLUB_CHIPS',
       available_balance: 99,
       in_play_balance: 0
@@ -240,6 +250,7 @@ describe('App', () => {
     spyOn(TestBed.inject(ClubApiService), 'getMemberWalletSummary').and.returnValue(of({
       club_id: 'club-1',
       user_id: 'different-player',
+      role: 'PLAYER',
       currency_type: 'CLUB_CHIPS',
       available_balance: 1000,
       in_play_balance: 0
@@ -266,6 +277,7 @@ describe('App', () => {
     spyOn(TestBed.inject(ClubApiService), 'getMemberWalletSummary').and.returnValue(of({
       club_id: 'club-1',
       user_id: 'player-1',
+      role: 'PLAYER',
       currency_type: 'CLUB_CHIPS',
       available_balance: 1000,
       in_play_balance: Number.NaN
@@ -291,6 +303,7 @@ describe('App', () => {
     spyOn(TestBed.inject(ClubApiService), 'getMemberWalletSummary').and.returnValue(of({
       club_id: 'club-1',
       user_id: 'player-1',
+      role: 'PLAYER',
       currency_type: 'CLUB_CHIPS',
       available_balance: 1000,
       in_play_balance: 0
@@ -329,6 +342,7 @@ describe('App', () => {
     spyOn(TestBed.inject(ClubApiService), 'getMemberWalletSummary').and.returnValue(of({
       club_id: 'demo',
       user_id: 'player-1',
+      role: 'PLAYER',
       currency_type: 'CLUB_CHIPS',
       available_balance: 500,
       in_play_balance: 0
@@ -359,53 +373,21 @@ describe('App', () => {
     expect(compiled.querySelector('.app-content')?.hasAttribute('inert')).toBeTrue();
   });
 
-  it('should open the mock wallet dashboard from the home wallet control', () => {
+  it('should open the live wallet dashboard from the home wallet control', async () => {
     const fixture = TestBed.createComponent(App);
-    const http = TestBed.inject(HttpTestingController);
+    const session = TestBed.inject(UserSessionStore);
+    spyOn(TestBed.inject(FirebaseAuthService), 'getCurrentIdToken').and.resolveTo('firebase-token');
+    session.setAuthenticatedIdentity('player-1', 'Alex', 'firebase-token');
     fixture.detectChanges();
 
-    (fixture.nativeElement.querySelector('[aria-label="Open mock wallet dashboard"]') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.member-wallet') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('#wallet-dashboard-title')?.textContent).toContain('Sample wallet');
-
-    http.expectOne('/ui-mocks/wallet-dashboard.json').flush({
-      mock_only: true,
-      viewer: { user_id: 'user-agent-player-a', username: 'Alex', club_id: 'club-demo', roles: ['AGENT', 'PLAYER'] },
-      global_wallet: {
-        wallet_id: 'global-wallet-user-agent-player-a',
-        wallet_type: 'GLOBAL_PLAYMONEY',
-        currency_type: 'GLOBAL_PLAYMONEY',
-        balance: 20000,
-        updated_at: '2026-10-16T08:00:00Z'
-      },
-      onboarding_preview: {
-        account_creation_grant: {
-          wallet_type: 'GLOBAL_PLAYMONEY',
-          currency_type: 'GLOBAL_PLAYMONEY',
-          amount: 20000,
-          status: 'mock_only',
-          trigger: 'firebase_account_created',
-          api_available: false
-        },
-        club_creation_grant: {
-          wallet_type: 'CLUB_TREASURY',
-          currency_type: 'CLUB_CHIPS',
-          amount: 10000,
-          status: 'live',
-          endpoint: 'POST /platform/clubs',
-          owner_personal_balance_after_creation: 0
-        }
-      },
-      club_wallets: [],
-      table_stacks: [],
-      recent_transactions: [],
-      cashout_requests: []
-    });
+    await fixture.whenStable();
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('#wallet-dashboard-title')?.textContent).toContain('Alex');
-    expect(fixture.nativeElement.querySelector('.wallet-mock-warning')?.textContent).toContain('No live wallet data');
     expect(fixture.nativeElement.querySelector('.wallet-account-summary strong')?.textContent).toContain('20,000');
+    expect(fixture.nativeElement.textContent).toContain('LIVE API');
     (fixture.nativeElement.querySelector('[aria-label="Close wallet dashboard"]') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.wallet-dashboard')).toBeNull();
@@ -421,6 +403,33 @@ describe('App', () => {
 
     expect(fixture.nativeElement.querySelector('.auth-gate-backdrop')).toBeNull();
     expect(fixture.nativeElement.querySelector('.app-content')?.hasAttribute('inert')).toBeFalse();
+  });
+
+  it('should show the ensured global wallet balance in the home wallet control', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const firebaseAuth = TestBed.inject(FirebaseAuthService);
+    const walletApi = TestBed.inject(ClubApiService);
+    const tokenSpy = spyOn(firebaseAuth, 'getCurrentIdToken').and.resolveTo('firebase-token');
+    const ensureSpy = spyOn(walletApi, 'ensureGlobalWallet').and.returnValue(of({
+      wallet_id: 'global-1',
+      wallet_type: 'GLOBAL_PLAYMONEY',
+      currency_type: 'GLOBAL_PLAYMONEY',
+      user_id: 'global-user',
+      balance: 42500,
+      created: false
+    }));
+    session.setAuthenticatedIdentity('global-user', 'Global Player', 'firebase-token');
+    fixture.detectChanges();
+
+    await app.loadGlobalWalletBalance();
+    fixture.detectChanges();
+
+    expect(tokenSpy).toHaveBeenCalledWith(true);
+    expect(ensureSpy).toHaveBeenCalledWith('http://127.0.0.1:8000', 'firebase-token');
+    expect(app.globalWalletBalance()).toBe(42500);
+    expect(fixture.nativeElement.querySelector('.member-wallet strong')?.textContent).toContain('42,500');
   });
 
   it('should expose create-account mode using the shared identifier and password fields', () => {
@@ -551,6 +560,64 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.lobby-nav')).toBeNull();
   });
 
+  it('should route lobby shortcut bar actions to their staff desk sections', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    TestBed.inject(UserSessionStore).setVerifiedMember('manager-1', 'Manager', 'MANAGER');
+    app.screen.set('lobby');
+    fixture.detectChanges();
+
+    const visitShortcut = async (label: string, selector: string): Promise<void> => {
+      const menuButton = fixture.nativeElement.querySelector('.lobby-bottom-menu') as HTMLButtonElement;
+      if (menuButton) {
+        menuButton.click();
+        fixture.detectChanges();
+      }
+      const shortcut = Array.from(fixture.nativeElement.querySelectorAll('.lobby-shortcut-bar > button') as NodeListOf<HTMLButtonElement>)
+        .find((button) => button.textContent?.includes(label))!;
+      shortcut.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector(selector)).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')?.classList.contains('above-staff-desk')).toBeTrue();
+      (fixture.nativeElement.querySelector('.staff-desk-close') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')).not.toBeNull();
+    };
+
+    await visitShortcut('Message', '.desk-messages-view');
+    await visitShortcut('Member', '.desk-members-view');
+    await visitShortcut('Cashier', '.desk-cashier-tabs');
+    await visitShortcut('Data', '.desk-overview');
+    await visitShortcut('Admin', '.desk-more-view');
+    (fixture.nativeElement.querySelector('[aria-label="Close lobby shortcuts"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')).toBeNull();
+  });
+
+  it('should open mock staff screens from a preview club without verified membership', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    const globalRoom = app.homeClubCards.find((club) => club.id === 'global-room')!;
+    app.openClubCard(globalRoom);
+    fixture.detectChanges();
+    expect(app.activeClubRole).toBe('PREVIEW');
+
+    app.lobbyQuickMenuOpen.set(true);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.lobby-shortcut-bar button:nth-child(5)') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(app.staffDeskOpen()).toBeTrue();
+    expect(fixture.nativeElement.querySelector('.desk-more-view')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.mock-data-badge')?.textContent).toContain('MOCK DATA');
+  });
+
   it('should not submit games the catalog does not mark create-supported', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
@@ -649,11 +716,25 @@ describe('App', () => {
     expect(app.clubCardIndex()).toBe(0);
   });
 
-  it('should open built-in club and global preview cards without using configured club access', () => {
+  it('should show the configured member wallet amount for Cowboys Global Room only', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
     const session = TestBed.inject(UserSessionStore);
-    session.setVerifiedMember('club-owner', 'Club Owner', 'OWNER');
+    const walletApi = TestBed.inject(ClubApiService);
+    const walletSpy = spyOn(walletApi, 'getMemberWalletSummary').and.returnValue(of({
+      club_id: 'demo',
+      user_id: 'club-owner',
+      role: 'OWNER',
+      currency_type: 'CLUB_CHIPS',
+      available_balance: 12500,
+      in_play_balance: 300
+    }));
+    const treasurySpy = spyOn(walletApi, 'getClubTreasury').and.returnValue(of({
+      club_id: 'demo',
+      currency_type: 'CLUB_CHIPS',
+      chip_balance: 350000
+    }));
+    session.setVerifiedMember('club-owner', 'Club Owner', 'OWNER', 'firebase-token');
     fixture.detectChanges();
 
     const previewClub = app.homeClubCards.find((club) => club.id === 'cebu-preview')!;
@@ -665,6 +746,8 @@ describe('App', () => {
     expect(app.activeClubRole).toBe('PREVIEW');
     expect(app.lobbyTables).toEqual([]);
     expect((fixture.nativeElement.querySelector('.create-table-card') as HTMLButtonElement).disabled).toBeFalse();
+    expect((fixture.nativeElement.querySelector('.lobby-wallet') as HTMLButtonElement).disabled).toBeTrue();
+    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).not.toContain('GLOBAL PLAYMONEY');
     expect(app.notice()).toContain('preview room');
 
     app.openPrivateTable();
@@ -673,6 +756,7 @@ describe('App', () => {
 
     const globalRoom = app.homeClubCards.find((club) => club.id === 'global-room')!;
     app.openClubCard(globalRoom);
+    await fixture.whenStable();
     fixture.detectChanges();
 
     expect(app.screen()).toBe('lobby');
@@ -680,6 +764,17 @@ describe('App', () => {
     expect(app.activeClubRole).toBe('PREVIEW');
     expect(app.lobbyTables).toEqual([]);
     expect((fixture.nativeElement.querySelector('.create-table-card') as HTMLButtonElement).disabled).toBeFalse();
+    expect(app.availableWalletBalance()).toBe(12500);
+    expect(app.clubTreasuryBalance()).toBe(350000);
+    app.globalWalletBalance.set(42500);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).toContain('350,000');
+    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).toContain('TREASURY');
+    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).toContain('42,500');
+    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).toContain('GLOBAL PLAYMONEY');
+    expect((fixture.nativeElement.querySelector('.lobby-wallet') as HTMLButtonElement).disabled).toBeFalse();
+    expect(walletSpy).toHaveBeenCalledWith('http://127.0.0.1:8000', 'demo', 'firebase-token');
+    expect(treasurySpy).toHaveBeenCalledWith('http://127.0.0.1:8000', 'demo', 'firebase-token');
     expect(app.notice()).toContain('preview room');
   });
 
@@ -717,6 +812,8 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.lobby-screen')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.lobby-club-name')?.textContent).toContain('Harbor Cards');
     expect(fixture.nativeElement.querySelector('.lobby-club-name')?.textContent).toContain('OWNER');
+    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).toContain('LOCAL TREASURY');
+    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).toContain('10,000');
     expect(fixture.nativeElement.querySelector('.create-table-card')).not.toBeNull();
 
     (fixture.nativeElement.querySelector('.create-table-card') as HTMLButtonElement).click();
@@ -794,7 +891,7 @@ describe('App', () => {
     expect(session.canManageUnion('union-1')).toBeFalse();
   });
 
-  it('should show the full member menu only for agent and higher roles', () => {
+  it('should show the full member menu only for agent and higher roles', async () => {
     const fixture = TestBed.createComponent(App);
     const session = TestBed.inject(UserSessionStore);
     fixture.detectChanges();
@@ -803,6 +900,44 @@ describe('App', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.member-nav button').length).toBe(1);
     expect(fixture.nativeElement.querySelector('.member-nav button')?.textContent).toContain('ROLES');
+    expect(fixture.nativeElement.querySelector('.role-cashier-button')).toBeNull();
+
+    session.setVerifiedMember('agent-1', 'Agent', 'AGENT');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.role-cashier-button')?.textContent).toContain('Staff desk');
+    (fixture.nativeElement.querySelector('.role-cashier-button') as HTMLButtonElement).click();
+    expect(fixture.componentInstance.staffDeskOpen()).toBeTrue();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.staff-desk')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.staff-desk-tabs')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.desk-cashier-tabs')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.mock-data-badge')?.textContent).toContain('MOCK DATA');
+    expect(fixture.nativeElement.querySelector('[data-desk-section="overview"]')).toBeNull();
+    (fixture.nativeElement.querySelector('.desk-trade-actions .primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.desk-balance-strip')?.textContent).toContain('12,300');
+    expect(fixture.nativeElement.querySelector('.desk-notice')?.textContent).toContain('Mock send out');
+    expect(fixture.nativeElement.querySelectorAll('.desk-trade-member').length).toBe(3);
+    (fixture.nativeElement.querySelector('.staff-desk-close') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    session.setVerifiedMember('manager-1', 'Manager', 'MANAGER');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.role-cashier-button')).not.toBeNull();
+    (fixture.nativeElement.querySelector('.role-cashier-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.staff-desk-tabs')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.desk-overview')).not.toBeNull();
+    (fixture.nativeElement.querySelector('.staff-desk-close') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    session.setVerifiedMember('owner-1', 'Owner', 'OWNER');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.role-cashier-button')).not.toBeNull();
 
     session.setVerifiedMember('agent-1', 'Agent', 'AGENT');
     fixture.detectChanges();

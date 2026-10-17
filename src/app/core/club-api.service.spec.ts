@@ -50,9 +50,106 @@ describe('ClubApiService union requests', () => {
     request.flush({
       club_id: 'club-a',
       user_id: 'member-1',
+      role: 'PLAYER',
       currency_type: 'CLUB_CHIPS',
       available_balance: 750,
       in_play_balance: 1200
+    });
+  });
+
+  it('ensures and reads the authenticated global playmoney wallet', () => {
+    service.ensureGlobalWallet('http://localhost:8000/', 'firebase-token').subscribe();
+
+    const ensureRequest = http.expectOne('http://localhost:8000/me/wallets/global-playmoney/ensure');
+    expect(ensureRequest.request.method).toBe('POST');
+    expect(ensureRequest.request.headers.get('Authorization')).toBe('Bearer firebase-token');
+    ensureRequest.flush({
+      wallet_id: 'global-1',
+      wallet_type: 'GLOBAL_PLAYMONEY',
+      currency_type: 'GLOBAL_PLAYMONEY',
+      user_id: 'member-1',
+      balance: 20000,
+      created: true
+    });
+
+    service.getGlobalWallet('http://localhost:8000', 'firebase-token').subscribe();
+    const getRequest = http.expectOne('http://localhost:8000/me/wallets/global-playmoney');
+    expect(getRequest.request.method).toBe('GET');
+    expect(getRequest.request.headers.get('Authorization')).toBe('Bearer firebase-token');
+    getRequest.flush({
+      wallet_id: 'global-1',
+      wallet_type: 'GLOBAL_PLAYMONEY',
+      currency_type: 'GLOBAL_PLAYMONEY',
+      user_id: 'member-1',
+      balance: 20000
+    });
+  });
+
+  it('reads the club treasury and transfers between club treasuries', () => {
+    service.getClubTreasury('http://localhost:8000/', 'club-a', 'firebase-token').subscribe();
+
+    const treasuryRequest = http.expectOne('http://localhost:8000/clubs/club-a/wallet');
+    expect(treasuryRequest.request.method).toBe('GET');
+    expect(treasuryRequest.request.headers.get('Authorization')).toBe('Bearer firebase-token');
+    treasuryRequest.flush({ club_id: 'club-a', currency_type: 'CLUB_CHIPS', chip_balance: 10000 });
+
+    service.transferClubTreasury('http://localhost:8000', 'club-a', 'firebase-token', {
+      destination_club_id: 'club-b',
+      amount: 2500,
+      transaction_id: '3c2de3c1-8b75-4f9e-9cb7-b6cdbe4cbfb8',
+      note: 'weekly transfer'
+    }).subscribe();
+    const transferRequest = http.expectOne('http://localhost:8000/clubs/club-a/wallet/transfers');
+    expect(transferRequest.request.method).toBe('POST');
+    expect(transferRequest.request.headers.get('Authorization')).toBe('Bearer firebase-token');
+    expect(transferRequest.request.body.destination_club_id).toBe('club-b');
+    expect(transferRequest.request.body.transaction_id).toBe('3c2de3c1-8b75-4f9e-9cb7-b6cdbe4cbfb8');
+    transferRequest.flush({
+      transaction_id: '3c2de3c1-8b75-4f9e-9cb7-b6cdbe4cbfb8',
+      type: 'INTER_CLUB_TRANSFER',
+      from_club_id: 'club-a',
+      to_club_id: 'club-b',
+      amount: 2500,
+      status: 'completed'
+    });
+  });
+
+  it('sends out and claims back member chips with idempotent transaction IDs', () => {
+    const transfer = {
+      user_id: 'player-2',
+      amount: 600,
+      transaction_id: 'b0882a59-3d2a-4124-b0f7-3ae7a4ae8321',
+      note: 'welcome chips'
+    };
+    service.sendOutClubChips('http://localhost:8000/', 'club-a', 'firebase-token', transfer).subscribe();
+
+    const sendRequest = http.expectOne('http://localhost:8000/clubs/club-a/wallet/send-out');
+    expect(sendRequest.request.method).toBe('POST');
+    expect(sendRequest.request.headers.get('Authorization')).toBe('Bearer firebase-token');
+    expect(sendRequest.request.body).toEqual(transfer);
+    sendRequest.flush({
+      club_id: 'club-a',
+      transaction_id: transfer.transaction_id,
+      type: 'SEND_OUT',
+      amount: 600,
+      from_user_id: 'operator-1',
+      to_user_id: 'player-2',
+      status: 'completed'
+    });
+
+    service.claimBackClubChips('http://localhost:8000/', 'club-a', 'firebase-token', transfer).subscribe();
+    const claimRequest = http.expectOne('http://localhost:8000/clubs/club-a/wallet/claim-back');
+    expect(claimRequest.request.method).toBe('POST');
+    expect(claimRequest.request.headers.get('Authorization')).toBe('Bearer firebase-token');
+    expect(claimRequest.request.body).toEqual(transfer);
+    claimRequest.flush({
+      club_id: 'club-a',
+      transaction_id: transfer.transaction_id,
+      type: 'CLAIM_BACK',
+      amount: 600,
+      from_user_id: 'player-2',
+      to_user_id: 'operator-1',
+      status: 'completed'
     });
   });
 

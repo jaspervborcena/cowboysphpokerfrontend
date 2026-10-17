@@ -1,0 +1,109 @@
+<div class="staff-desk-backdrop" (click)="close.emit()">
+  <section class="staff-desk" role="dialog" aria-modal="true" aria-labelledby="staff-desk-title" (click)="$event.stopPropagation()">
+    <header class="staff-desk-header">
+      <button type="button" class="staff-desk-back" aria-label="Close staff desk" (click)="close.emit()">‹</button>
+      <div><small>{{ clubName }}</small><h2 id="staff-desk-title">{{ section() === 'cashier' || role === 'AGENT' ? 'Cashier' : 'Club Admin' }}</h2></div>
+      <span class="mock-data-badge">MOCK DATA</span>
+      <button type="button" class="staff-desk-close" aria-label="Close staff desk" (click)="close.emit()">×</button>
+    </header>
+
+    <main class="staff-desk-content">
+      @if (section() === 'overview' && role !== 'AGENT') {
+        <section class="desk-overview">
+          <div class="desk-context-row"><span>CLUB PERFORMANCE</span><label>Club <select aria-label="Select club"><option>{{ clubName }}</option><option>Local Union</option></select></label></div>
+          <div class="desk-period-tabs" role="tablist" aria-label="Report period">
+            <button type="button" [class.selected]="period() === 'today'" (click)="period.set('today')">Today</button>
+            <button type="button" [class.selected]="period() === 'week'" (click)="period.set('week')">This week</button>
+            <button type="button" [class.selected]="period() === 'lastWeek'" (click)="period.set('lastWeek')">Last week</button>
+            <button type="button" [class.selected]="period() === 'overall'" (click)="period.set('overall')">Overall</button>
+          </div>
+          <div class="desk-metric-table">
+            @for (metric of performance; track metric.label) {
+              <div class="desk-metric-row"><strong>{{ metric.label }}</strong><span>{{ metric.values[period()] | number:'1.0-2' }}</span></div>
+            }
+            <p class="desk-timezone">Mock report · Time zone: UTC+08:00</p>
+          </div>
+          <section class="desk-activity">
+            <div class="desk-section-title"><h3>Recent table activity</h3><span>MOCK</span></div>
+            <div class="desk-activity-row"><time>10/17<br>06:16</time><span><b>PLO5</b><small>Table 563060 · Buy-in 20–200</small></span><strong>11.93 fee</strong></div>
+            <div class="desk-activity-row"><time>10/17<br>00:17</time><span><b>Push</b><small>Table 148211 · Buy-in 50–500</small></span><strong>14.05 fee</strong></div>
+            <div class="desk-activity-row"><time>10/16<br>20:55</time><span><b>PLO4</b><small>Table 148211 · Buy-in 40–400</small></span><strong>18.51 fee</strong></div>
+          </section>
+        </section>
+      } @else if (section() === 'cashier') {
+        <nav class="desk-cashier-tabs" aria-label="Cashier views">
+          <button type="button" [class.selected]="cashierSection() === 'trade'" (click)="cashierSection.set('trade')">Trade</button>
+          <button type="button" [class.selected]="cashierSection() === 'records'" (click)="cashierSection.set('records')">Trade record</button>
+          <button type="button" [class.selected]="cashierSection() === 'requests'" (click)="cashierSection.set('requests')">Chip requests <span>{{ pendingRequests() }}</span></button>
+        </nav>
+
+        @if (cashierSection() === 'trade') {
+          <section class="desk-cashier-view">
+            <div class="desk-balance-strip">
+              <div><small>AVAILABLE CHIPS</small><strong>{{ availableChips() | number:'1.0-2' }}</strong></div>
+              <div><small>YOUR CHIPS</small><strong>{{ yourChips() | number:'1.0-2' }}</strong></div>
+              <div><small>MEMBERS' CHIPS</small><strong>{{ totalMemberChips() | number:'1.0-2' }}</strong></div>
+            </div>
+            <label class="desk-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search members" placeholder="Search member" [value]="search()" (input)="search.set($any($event.target).value)"></label>
+            <div class="desk-sort-line"><span>DOWNLINE · {{ visibleMembers().length }}</span><label>Sort <select [value]="memberSort()" (change)="memberSort.set($any($event.target).value)"><option value="chips">Chips</option><option value="fee">Fee</option><option value="winnings">Winnings</option><option value="hands">Hands</option></select></label></div>
+            <div class="desk-member-list">
+              @for (member of visibleMembers(); track member.id) {
+                <button type="button" class="desk-trade-member" [class.selected]="selectedMemberId() === member.id" (click)="selectedMemberId.set(member.id)">
+                  <span class="desk-avatar">{{ member.name.slice(0, 1) }}</span><span class="desk-member-name"><strong>{{ member.name }}</strong><small>ID: {{ member.id }} · {{ member.lastSeen }}</small></span><strong class="desk-member-chips">{{ member.chips | number:'1.0-2' }}</strong>
+                </button>
+              }
+            </div>
+            <div class="desk-trade-controls">
+              <label>Amount <input type="number" min="1" step="1" [value]="amount()" (input)="setAmount($any($event.target).value)"></label>
+              <div class="desk-trade-actions"><button type="button" (click)="runMockTrade('CLAIM BACK')">Claim back</button><button type="button" (click)="runMockTrade('SEND TICKET')">Send ticket</button><button type="button" class="primary" (click)="runMockTrade('SEND OUT')">Send out</button></div>
+            </div>
+          </section>
+        } @else if (cashierSection() === 'records') {
+          <section class="desk-records-view">
+            <label class="desk-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search trade records" placeholder="Search member or operation" [value]="recordSearch()" (input)="recordSearch.set($any($event.target).value)"></label>
+            @for (trade of filteredTrades(); track trade.id) {
+              <article class="desk-record-row"><span class="desk-record-arrow" [class.incoming]="trade.type === 'CLAIM BACK'">{{ trade.type === 'CLAIM BACK' ? '←' : '→' }}</span><span><strong>{{ trade.member }}</strong><small>{{ trade.type }} · {{ trade.time }}</small></span><b>{{ trade.type === 'CLAIM BACK' ? '+' : '−' }}{{ trade.amount | number }}</b><small class="desk-record-status">{{ trade.status }}</small></article>
+            } @empty { <p class="desk-empty">No matching mock records.</p> }
+          </section>
+        } @else {
+          <section class="desk-requests-view">
+            <div class="desk-request-options"><span>Auto reject</span><button type="button" role="switch" [attr.aria-checked]="autoReject()" [class.on]="autoReject()" (click)="toggleAutoReject()">{{ autoReject() ? 'ON' : 'OFF' }}</button></div>
+            <div class="desk-section-title"><h3>Chip applications</h3><span>{{ pendingRequests() }} PENDING</span></div>
+            @for (request of requests(); track request.id) {
+              <article class="desk-request-row"><span class="desk-avatar">{{ request.member.slice(0, 1) }}</span><span><strong>{{ request.member }}</strong><small>{{ request.time }} · {{ request.status }}</small></span><b>{{ request.amount | number }}</b>@if (request.status === 'PENDING') {<div class="desk-request-actions"><button type="button" (click)="resolveRequest(request.id, 'REJECTED')">Reject</button><button type="button" class="primary" (click)="resolveRequest(request.id, 'APPROVED')">Approve</button></div>}</article>
+            } @empty { <p class="desk-empty">No mock applications.</p> }
+            <div class="desk-bulk-actions"><button type="button" [disabled]="pendingRequests() === 0" (click)="resolveAllRequests('REJECTED')">Reject all</button><button type="button" class="primary" [disabled]="pendingRequests() === 0" (click)="resolveAllRequests('APPROVED')">Approve all</button></div>
+          </section>
+        }
+      } @else if (section() === 'members') {
+        <section class="desk-members-view">
+          <div class="desk-member-toolbar"><span>{{ role === 'AGENT' ? 'MY DOWNLINE' : 'CLUB MEMBERS' }} · {{ visibleMembers().length }}</span><label>Sort <select [value]="memberSort()" (change)="memberSort.set($any($event.target).value)"><option value="fee">Fee</option><option value="winnings">Winnings</option><option value="hands">Hands</option><option value="chips">Chips</option></select></label></div>
+          <label class="desk-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search club members" placeholder="Search member ID or name" [value]="search()" (input)="search.set($any($event.target).value)"></label>
+          <div class="desk-member-table-head"><span>MEMBER</span><span>FEE · CHIPS</span></div>
+          @for (member of visibleMembers(); track member.id) {
+            <article class="desk-admin-member"><span class="desk-avatar">{{ member.name.slice(0, 1) }}</span><span class="desk-member-name"><strong>{{ member.name }}</strong><small>ID: {{ member.id }} · {{ member.hands }} hands · {{ member.lastSeen }}</small><small>Winnings {{ member.winnings > 0 ? '+' : '' }}{{ member.winnings | number:'1.0-2' }}</small></span><span class="desk-admin-stats"><strong>{{ member.fee | number:'1.0-2' }}</strong><small>{{ member.chips | number:'1.0-2' }} chips</small></span></article>
+          } @empty { <p class="desk-empty">No matching members.</p> }
+        </section>
+      } @else if (section() === 'messages') {
+        <section class="desk-messages-view">
+          @for (message of messages(); track message.id) {
+            <article class="desk-message" [class.unread]="message.unread"><span class="desk-envelope" aria-hidden="true">✉</span><div><div class="desk-message-heading"><strong>{{ message.title }}</strong><time>{{ message.date }}</time></div><p>{{ message.body }}</p></div>@if (message.unread) {<button type="button" aria-label="Mark message as read" (click)="markMessageRead(message.id)">●</button>}</article>
+          }
+        </section>
+      } @else {
+        <section class="desk-more-view">
+          <button type="button" class="desk-more-row" [disabled]="role === 'AGENT'" (click)="section.set('overview')"><span>♜</span><span><strong>Club career</strong><small>Performance overview · mock data</small></span><b>›</b></button>
+          <div class="desk-more-row"><span>♧</span><span><strong>Notification settings</strong><small>Club announcements and requests</small></span><button type="button" role="switch" [attr.aria-checked]="notificationsEnabled()" [class.on]="notificationsEnabled()" (click)="toggleNotifications()">{{ notificationsEnabled() ? 'ON' : 'OFF' }}</button></div>
+          <button type="button" class="desk-more-row" (click)="section.set('cashier'); cashierSection.set('records')"><span>▤</span><span><strong>Personal trade record</strong><small>Mock cashier activity</small></span><b>›</b></button>
+          <button type="button" class="desk-more-row danger" (click)="quitPromptOpen.set(true)"><span>↪</span><span><strong>Quit from this club</strong><small>Preview only · no membership changes</small></span><b>›</b></button>
+        </section>
+      }
+
+      @if (notice()) { <p class="desk-notice" role="status">{{ notice() }}</p> }
+      <p class="desk-mock-footnote">Sample data only. Actions in this desk do not affect real accounts or balances.</p>
+    </main>
+    @if (quitPromptOpen()) {
+      <div class="desk-confirm-backdrop" (click)="quitPromptOpen.set(false)"><section class="desk-confirm" role="alertdialog" aria-labelledby="desk-quit-title" (click)="$event.stopPropagation()"><h3 id="desk-quit-title">Leave this club?</h3><p>This is a mock action. Your membership will stay active.</p><div><button type="button" (click)="quitPromptOpen.set(false)">Cancel</button><button type="button" class="primary" (click)="confirmMockQuit()">Continue</button></div></section></div>
+    }
+  </section>
+</div>

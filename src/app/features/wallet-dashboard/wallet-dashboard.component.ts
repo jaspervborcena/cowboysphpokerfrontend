@@ -1,13 +1,18 @@
 import { DecimalPipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, EventEmitter, Input, OnInit, Output, inject, signal } from '@angular/core';
-import { WalletDashboardMockService } from './wallet-dashboard.mock.service';
+import { firstValueFrom } from 'rxjs';
 import {
-  WalletAccount,
-  WalletCashoutRequest,
-  WalletDashboard,
-  WalletTransaction,
-  WalletType
-} from './wallet-dashboard.models';
+  ClubApiService,
+  ClubMemberWalletSummary,
+  ClubTreasuryResponse,
+  ClubTreasuryTransferRequest,
+  ClubWalletTransferRequest,
+  GlobalWalletResponse
+} from '../../core/club-api.service';
+import { FirebaseAuthService } from '../../core/firebase-auth.service';
+import { AppRuntimeConfig } from '../../core/runtime-config';
+import { UserSessionStore } from '../../core/user-session.store';
 
 @Component({
   selector: 'app-wallet-dashboard',
@@ -19,122 +24,183 @@ export class WalletDashboardComponent implements OnInit {
   @Input() initialScope: 'global' | 'club' = 'global';
   @Output() close = new EventEmitter<void>();
 
-  readonly dashboard = signal<WalletDashboard | null>(null);
+  readonly globalWallet = signal<GlobalWalletResponse | null>(null);
+  readonly clubWallet = signal<ClubMemberWalletSummary | null>(null);
+  readonly clubTreasury = signal<ClubTreasuryResponse | null>(null);
   readonly activeScope = signal<'global' | 'club'>('global');
-  readonly selectedClubWalletType = signal<WalletType>('CLUB_PLAYER');
   readonly loading = signal(true);
-  readonly loadError = signal(false);
-  readonly cashoutAmount = signal(600);
-  readonly cashoutNotice = signal('');
-  readonly mockCashoutRequests = signal<WalletCashoutRequest[]>([]);
-  private readonly walletService = inject(WalletDashboardMockService);
+  readonly loadError = signal('');
+  readonly globalWalletCreated = signal(false);
+  readonly transferMode = signal<'SEND_OUT' | 'CLAIM_BACK' | 'INTER_CLUB'>('SEND_OUT');
+  readonly transferTarget = signal('');
+  readonly transferAmount = signal(600);
+  readonly transferNote = signal('');
+  readonly transferPending = signal(false);
+  readonly transferNotice = signal('');
+  private readonly api = inject(ClubApiService);
+  private readonly firebaseAuth = inject(FirebaseAuthService);
+  readonly session = inject(UserSessionStore);
+  private readonly apiBase = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig })
+    .__COWBOYS_APP_CONFIG__?.apiBase ?? 'http://127.0.0.1:8000';
+  readonly clubId = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig })
+    .__COWBOYS_APP_CONFIG__?.clubId ?? 'demo';
+  private pendingTransactionFingerprint = '';
+  private pendingTransactionId = '';
 
   ngOnInit(): void {
     this.activeScope.set(this.initialScope);
-    this.walletService.load().subscribe({
-      next: (dashboard) => {
-        this.dashboard.set(dashboard);
-        this.mockCashoutRequests.set(dashboard.cashout_requests);
-        this.loading.set(false);
-        const playerWallet = this.availableClubWallets.find((wallet) => wallet.wallet_type === 'CLUB_PLAYER');
-        const firstWallet = playerWallet ?? this.availableClubWallets[0];
-        if (firstWallet) this.selectedClubWalletType.set(firstWallet.wallet_type);
-      },
-      error: () => {
-        this.loading.set(false);
-        this.loadError.set(true);
-      }
-    });
+    void this.loadActiveScope(this.initialScope === 'global');
   }
 
-  get availableClubWallets(): WalletAccount[] {
-    const dashboard = this.dashboard();
-    if (!dashboard) return [];
-    const roles = dashboard.viewer.roles;
-    return dashboard.club_wallets.filter((wallet) => {
-      if (wallet.wallet_type === 'CLUB_PLAYER') return roles.includes('PLAYER');
-      if (wallet.wallet_type === 'CLUB_AGENT') return roles.includes('AGENT');
-      if (wallet.wallet_type === 'CLUB_TREASURY') return roles.includes('OWNER') || roles.includes('MANAGER');
-      return false;
-    });
+  get canOperateMemberWallets(): boolean {
+    return this.session.membershipStatus() === 'verified'
+      && ['OWNER', 'MANAGER', 'AGENT'].includes(this.session.role());
   }
 
-  get selectedClubWallet(): WalletAccount | undefined {
-    return this.availableClubWallets.find((wallet) => wallet.wallet_type === this.selectedClubWalletType());
+  get canTransferBetweenTreasuries(): boolean {
+    return this.session.membershipStatus() === 'verified'
+      && ['OWNER', 'MANAGER'].includes(this.session.role());
   }
 
-  get visibleTransactions(): WalletTransaction[] {
-    const dashboard = this.dashboard();
-    if (!dashboard) return [];
-    const walletType = this.activeScope() === 'global'
-      ? 'GLOBAL_PLAYMONEY'
-      : this.selectedClubWalletType();
-    return dashboard.recent_transactions.filter((transaction) => transaction.wallet_type === walletType);
+  selectScope(scope: 'global' | 'club'): void {
+    this.activeScope.set(scope);
+    this.transferNotice.set('');
+    void this.loadActiveScope(scope === 'global');
   }
 
-  get selectedTableStacks(): WalletDashboard['table_stacks'] {
-    if (this.activeScope() !== 'club' || this.selectedClubWalletType() !== 'CLUB_PLAYER') return [];
-    return this.dashboard()?.table_stacks ?? [];
+  refresh(): void {
+    void this.loadActiveScope(false);
   }
 
-  get cashoutRequestsForViewer(): WalletCashoutRequest[] {
-    const dashboard = this.dashboard();
-    if (!dashboard) return [];
-    return this.mockCashoutRequests().filter((request) =>
-      request.club_id === dashboard.viewer.club_id && request.user_id === dashboard.viewer.user_id
-    );
-  }
-
-  setCashoutAmount(value: string): void {
+  setTransferAmount(value: string): void {
     const amount = Number(value);
-    this.cashoutAmount.set(Number.isFinite(amount) ? amount : 0);
+    this.transferAmount.set(Number.isFinite(amount) ? amount : 0);
   }
 
-  requestMockCashout(): void {
-    const dashboard = this.dashboard();
-    const wallet = this.selectedClubWallet;
-    if (!dashboard
-      || this.activeScope() !== 'club'
-      || this.selectedClubWalletType() !== 'CLUB_PLAYER'
-      || !dashboard.viewer.roles.includes('PLAYER')
-      || !wallet) {
+  async submitTransfer(): Promise<void> {
+    const target = this.transferTarget().trim();
+    const amount = this.transferAmount();
+    if (!this.canOperateMemberWallets || this.activeScope() !== 'club') return;
+    if (this.transferMode() === 'INTER_CLUB' && !this.canTransferBetweenTreasuries) return;
+    if (!target || !Number.isSafeInteger(amount) || amount <= 0) {
+      this.transferNotice.set('Enter a recipient ID and a positive whole-chip amount.');
       return;
     }
 
-    const amount = this.cashoutAmount();
-    const availableBalance = Number(wallet.available_balance ?? 0);
-    const alreadyPending = this.cashoutRequestsForViewer.reduce((total, request) => total + request.amount, 0);
-    if (!Number.isSafeInteger(amount) || amount <= 0 || amount + alreadyPending > availableBalance) {
-      this.cashoutNotice.set('Enter a whole-chip amount within the available balance after pending requests.');
-      return;
+    this.transferPending.set(true);
+    this.transferNotice.set('');
+    const fingerprint = `${this.clubId}|${this.transferMode()}|${target}|${amount}|${this.transferNote().trim()}`;
+    if (fingerprint !== this.pendingTransactionFingerprint) {
+      this.pendingTransactionFingerprint = fingerprint;
+      this.pendingTransactionId = crypto.randomUUID();
     }
 
-    this.mockCashoutRequests.update((requests) => [{
-      request_id: `mock-cashout-request-${crypto.randomUUID()}`,
-      wallet_type: 'CLUB_PLAYER',
-      club_id: dashboard.viewer.club_id,
-      user_id: dashboard.viewer.user_id,
-      amount,
-      status: 'pending_mock',
-      player_request_api_available: false,
-      operator_fulfillment_endpoint: 'POST /clubs/{club_id}/wallet/claim-back',
-      blocked_while_in_play_balance_nonzero: Number(wallet.in_play_balance ?? 0) > 0
-    }, ...requests]);
-    this.cashoutNotice.set('Mock cash-out request added. No wallet balance was changed.');
+    try {
+      const idToken = await this.firebaseAuth.getCurrentIdToken(true);
+      if (!idToken) throw new Error('Your sign-in has expired. Sign in again to manage wallets.');
+      const note = this.transferNote().trim();
+      if (this.transferMode() === 'SEND_OUT') {
+        const request: ClubWalletTransferRequest = {
+          user_id: target,
+          amount,
+          transaction_id: this.pendingTransactionId,
+          ...(note ? { note } : {})
+        };
+        await firstValueFrom(this.api.sendOutClubChips(this.apiBase, this.clubId, idToken, request));
+      } else if (this.transferMode() === 'CLAIM_BACK') {
+        const request: ClubWalletTransferRequest = {
+          user_id: target,
+          amount,
+          transaction_id: this.pendingTransactionId,
+          ...(note ? { note } : {})
+        };
+        await firstValueFrom(this.api.claimBackClubChips(this.apiBase, this.clubId, idToken, request));
+      } else {
+        const request: ClubTreasuryTransferRequest = {
+            destination_club_id: target,
+            amount,
+            transaction_id: this.pendingTransactionId,
+            ...(note ? { note } : {})
+          }
+        await firstValueFrom(this.api.transferClubTreasury(this.apiBase, this.clubId, idToken, request));
+      }
+
+      this.pendingTransactionFingerprint = '';
+      this.pendingTransactionId = '';
+      this.transferNotice.set(this.transferMode() === 'SEND_OUT'
+        ? `Chips sent to ${target}.`
+        : this.transferMode() === 'CLAIM_BACK'
+          ? `Available chips claimed back from ${target}.`
+          : `Treasury transfer sent to ${target}.`);
+      try {
+        await this.loadClubWallet(idToken);
+      } catch {
+        this.transferNotice.update((notice) => `${notice} Balances could not refresh; use Refresh before another operation.`);
+      }
+    } catch (error) {
+      this.transferNotice.set(this.errorMessage(error, 'The wallet operation failed. Check the details and try again.'));
+    } finally {
+      this.transferPending.set(false);
+    }
   }
 
-  walletLabel(walletType: WalletType): string {
-    const labels: Record<WalletType, string> = {
-      GLOBAL_PLAYMONEY: 'Global playmoney',
-      CLUB_TREASURY: 'Club treasury',
-      CLUB_AGENT: 'Agent operating',
-      CLUB_PLAYER: 'Player wallet',
-      TABLE_ESCROW: 'Table escrow'
-    };
-    return labels[walletType];
+  private async loadActiveScope(ensureGlobal: boolean): Promise<void> {
+    this.loading.set(true);
+    this.loadError.set('');
+    this.globalWalletCreated.set(false);
+    try {
+      const idToken = await this.firebaseAuth.getCurrentIdToken(true);
+      if (!idToken) throw new Error('Sign in to view your wallets.');
+      if (this.activeScope() === 'global') {
+        const wallet = ensureGlobal
+          ? await firstValueFrom(this.api.ensureGlobalWallet(this.apiBase, idToken))
+          : await firstValueFrom(this.api.getGlobalWallet(this.apiBase, idToken));
+        if (wallet.user_id !== this.session.memberId()) {
+          throw new Error('The returned global wallet does not match the signed-in account.');
+        }
+        this.globalWallet.set(wallet);
+        this.globalWalletCreated.set(
+          ensureGlobal && 'created' in wallet && typeof wallet.created === 'boolean' && wallet.created
+        );
+      } else {
+        await this.loadClubWallet(idToken);
+      }
+    } catch (error) {
+      this.loadError.set(this.errorMessage(error, 'Unable to load wallet data from the server.'));
+    } finally {
+      this.loading.set(false);
+    }
   }
 
-  transactionLabel(transaction: WalletTransaction): string {
-    return transaction.type.replaceAll('_', ' ').toLowerCase();
+  private async loadClubWallet(idToken: string): Promise<void> {
+    if (this.session.membershipStatus() !== 'verified') {
+      throw new Error('An active club membership is required to view club-chip wallets.');
+    }
+    const wallet = await firstValueFrom(this.api.getMemberWalletSummary(this.apiBase, this.clubId, idToken));
+    if (wallet.club_id !== this.clubId
+      || wallet.user_id !== this.session.memberId()
+      || wallet.role !== this.session.role()) {
+      throw new Error('The returned club wallet does not match the active member, role, and club.');
+    }
+    this.clubWallet.set(wallet);
+    if (this.canTransferBetweenTreasuries) {
+      try {
+        this.clubTreasury.set(await firstValueFrom(this.api.getClubTreasury(this.apiBase, this.clubId, idToken)));
+      } catch {
+        this.clubTreasury.set(null);
+      }
+    } else {
+      this.clubTreasury.set(null);
+    }
+  }
+
+  private errorMessage(error: unknown, fallback: string): string {
+    if (error instanceof HttpErrorResponse) {
+      const body = error.error as { message?: unknown; trace_id?: unknown } | null;
+      const message = typeof body?.message === 'string' ? body.message : fallback;
+      return typeof body?.trace_id === 'string' ? `${message} Reference: ${body.trace_id}` : message;
+    }
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
   }
 }

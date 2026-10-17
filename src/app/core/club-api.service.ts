@@ -12,6 +12,7 @@ export interface ClubMembershipResponse {
 export interface ClubMemberWalletSummary {
   club_id: string;
   user_id: string;
+  role: 'OWNER' | 'MANAGER' | 'AGENT' | 'PLAYER';
   currency_type: 'CLUB_CHIPS';
   available_balance: number;
   in_play_balance: number;
@@ -77,6 +78,57 @@ export interface PhonePasswordSignInResponse {
   firebase_custom_token: string;
 }
 
+export interface GlobalWalletResponse {
+  wallet_id: string;
+  wallet_type: 'GLOBAL_PLAYMONEY';
+  currency_type: 'GLOBAL_PLAYMONEY';
+  user_id: string;
+  balance: number;
+}
+
+export interface GlobalWalletEnsureResponse extends GlobalWalletResponse {
+  created: boolean;
+}
+
+export interface ClubTreasuryResponse {
+  club_id: string;
+  currency_type: 'CLUB_CHIPS';
+  chip_balance: number;
+}
+
+export interface ClubWalletTransferRequest {
+  user_id: string;
+  amount: number;
+  transaction_id: string;
+  note?: string;
+}
+
+export interface MemberTransferResponse {
+  club_id: string;
+  transaction_id: string;
+  type: 'SEND_OUT' | 'CLAIM_BACK';
+  amount: number;
+  from_user_id: string;
+  to_user_id: string;
+  status: 'completed' | 'idempotent_replay';
+}
+
+export interface ClubTreasuryTransferRequest {
+  destination_club_id: string;
+  amount: number;
+  transaction_id: string;
+  note?: string;
+}
+
+export interface InterClubTransferResponse {
+  transaction_id: string;
+  type: 'INTER_CLUB_TRANSFER';
+  from_club_id: string;
+  to_club_id: string;
+  amount: number;
+  status: 'completed' | 'idempotent_replay';
+}
+
 @Injectable({ providedIn: 'root' })
 export class ClubApiService {
   private readonly http = inject(HttpClient);
@@ -121,6 +173,63 @@ export class ClubApiService {
   getMemberWalletSummary(apiBase: string, clubId: string, idToken: string): Observable<ClubMemberWalletSummary> {
     const url = `${apiBase.replace(/\/$/, '')}/clubs/${encodeURIComponent(clubId)}/members/me/wallet`;
     return this.http.get<ClubMemberWalletSummary>(url, {
+      headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
+    });
+  }
+
+  ensureGlobalWallet(apiBase: string, idToken: string): Observable<GlobalWalletEnsureResponse> {
+    const url = `${apiBase.replace(/\/$/, '')}/me/wallets/global-playmoney/ensure`;
+    return this.http.post<GlobalWalletEnsureResponse>(url, null, {
+      headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
+    });
+  }
+
+  getGlobalWallet(apiBase: string, idToken: string): Observable<GlobalWalletResponse> {
+    const url = `${apiBase.replace(/\/$/, '')}/me/wallets/global-playmoney`;
+    return this.http.get<GlobalWalletResponse>(url, {
+      headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
+    });
+  }
+
+  getClubTreasury(apiBase: string, clubId: string, idToken: string): Observable<ClubTreasuryResponse> {
+    const url = `${apiBase.replace(/\/$/, '')}/clubs/${encodeURIComponent(clubId)}/wallet`;
+    return this.http.get<ClubTreasuryResponse>(url, {
+      headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
+    });
+  }
+
+  transferClubTreasury(
+    apiBase: string,
+    clubId: string,
+    idToken: string,
+    request: ClubTreasuryTransferRequest
+  ): Observable<InterClubTransferResponse> {
+    const url = `${apiBase.replace(/\/$/, '')}/clubs/${encodeURIComponent(clubId)}/wallet/transfers`;
+    return this.http.post<InterClubTransferResponse>(url, request, {
+      headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
+    });
+  }
+
+  sendOutClubChips(
+    apiBase: string,
+    clubId: string,
+    idToken: string,
+    request: ClubWalletTransferRequest
+  ): Observable<MemberTransferResponse> {
+    const url = `${apiBase.replace(/\/$/, '')}/clubs/${encodeURIComponent(clubId)}/wallet/send-out`;
+    return this.http.post<MemberTransferResponse>(url, request, {
+      headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
+    });
+  }
+
+  claimBackClubChips(
+    apiBase: string,
+    clubId: string,
+    idToken: string,
+    request: ClubWalletTransferRequest
+  ): Observable<MemberTransferResponse> {
+    const url = `${apiBase.replace(/\/$/, '')}/clubs/${encodeURIComponent(clubId)}/wallet/claim-back`;
+    return this.http.post<MemberTransferResponse>(url, request, {
       headers: new HttpHeaders({ Authorization: `Bearer ${idToken}` })
     });
   }
