@@ -3,7 +3,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom, Observable } from 'rxjs';
-import { ClubApiService, ClubMembershipResponse, ClubTableCreateRequest, ClubTableSummary, ClubUnionSummary, GameCatalogResponse } from './core/club-api.service';
+import { ClubApiService, ClubMembershipResponse, ClubTableCreateRequest, ClubTableSummary, ClubUnionSummary, GameCatalogResponse, GlobalWalletEnsureResponse } from './core/club-api.service';
 import { parseAuthIdentifier } from './core/auth-identifier';
 import { FirebaseAuthService } from './core/firebase-auth.service';
 import { TableActionPayload, TableSocketErrorPayload, TableWebSocketEnvelope } from './core/table-websocket.models';
@@ -297,8 +297,10 @@ export class App implements OnInit, OnDestroy {
   private readonly clubApi = inject(ClubApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
   private readonly tableRules = inject(TableRulesService);
-  apiBase = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__?.apiBase ?? 'http://127.0.0.1:8000';
-  clubId = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__?.clubId ?? 'demo';
+  private readonly runtimeConfig = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__;
+  apiBase = this.runtimeConfig?.walletApiBase ?? this.runtimeConfig?.apiBase ?? 'http://127.0.0.1:8000';
+  gameServerBase = this.runtimeConfig?.gameServerBase ?? this.runtimeConfig?.apiBase ?? this.apiBase;
+  clubId = this.runtimeConfig?.clubId ?? 'demo';
   tableId = '';
   tableGameId = signal<string | undefined>(undefined);
   smallBlind = tableCreationDefaults.default_table.create_request_defaults.small_blind;
@@ -309,6 +311,8 @@ export class App implements OnInit, OnDestroy {
   seatIndex = 0;
   buyInAmount = 500;
   globalWalletBalance = signal<number | null>(null);
+  globalWallet = signal<GlobalWalletEnsureResponse | null>(null);
+  globalWalletCreated = signal(false);
   globalWalletLoading = signal(false);
   globalWalletError = signal(false);
   availableWalletBalance = signal<number | null>(null);
@@ -629,6 +633,7 @@ export class App implements OnInit, OnDestroy {
 
   closeWallet(): void {
     this.walletOpen.set(false);
+    this.globalWalletCreated.set(false);
     if (this.walletInitialScope() === 'club' && this.canOpenClubWallet) {
       void this.loadMemberWalletBalance();
     }
@@ -729,6 +734,12 @@ export class App implements OnInit, OnDestroy {
       this.clearGlobalWalletBalance();
       return;
     }
+    if (this.globalWalletLoadUserId && this.globalWalletLoadUserId !== userId) {
+      this.globalWallet.set(null);
+      this.globalWalletBalance.set(null);
+      this.globalWalletCreated.set(false);
+      this.globalWalletError.set(false);
+    }
     if (this.globalWalletLoading() && this.globalWalletLoadUserId === userId) return;
     if (this.globalWalletLoadUserId === userId && this.globalWalletBalance() !== null) return;
 
@@ -741,14 +752,22 @@ export class App implements OnInit, OnDestroy {
       if (!idToken) throw new Error('Firebase authentication is unavailable.');
       const wallet = await firstValueFrom(this.clubApi.ensureGlobalWallet(this.baseUrl(), idToken));
       if (requestId !== this.globalWalletRequestId || this.session.firebaseUid() !== userId) return;
-      if (wallet.user_id !== userId || !Number.isSafeInteger(wallet.balance) || wallet.balance < 0) {
+      if (wallet.user_id !== userId
+        || wallet.wallet_type !== 'GLOBAL_PLAYMONEY'
+        || wallet.currency_type !== 'GLOBAL_PLAYMONEY'
+        || !Number.isSafeInteger(wallet.balance)
+        || wallet.balance < 0) {
         throw new Error('The global wallet response does not match the signed-in account.');
       }
+      this.globalWallet.set(wallet);
       this.globalWalletBalance.set(wallet.balance);
+      this.globalWalletCreated.set(wallet.created === true);
     } catch {
       if (requestId !== this.globalWalletRequestId) return;
       this.globalWalletLoadUserId = '';
+      this.globalWallet.set(null);
       this.globalWalletBalance.set(null);
+      this.globalWalletCreated.set(false);
       this.globalWalletError.set(true);
     } finally {
       if (requestId === this.globalWalletRequestId) this.globalWalletLoading.set(false);
@@ -758,7 +777,9 @@ export class App implements OnInit, OnDestroy {
   private clearGlobalWalletBalance(): void {
     this.globalWalletRequestId += 1;
     this.globalWalletLoadUserId = '';
+    this.globalWallet.set(null);
     this.globalWalletBalance.set(null);
+    this.globalWalletCreated.set(false);
     this.globalWalletLoading.set(false);
     this.globalWalletError.set(false);
   }
@@ -1311,7 +1332,7 @@ export class App implements OnInit, OnDestroy {
 
   checkHealth(): void {
     this.health.set('checking');
-    this.http.get<{ status: string }>(`${this.baseUrl()}/health`).subscribe({
+    this.http.get<{ status: string }>(`${this.gameServerUrl()}/health`).subscribe({
       next: () => this.health.set('online'),
       error: () => this.health.set('offline')
     });
@@ -1324,8 +1345,19 @@ export class App implements OnInit, OnDestroy {
     this.clubApi.getMembership(this.baseUrl(), this.clubId, idToken).subscribe({
       next: (membership: ClubMembershipResponse) => {
         if (this.session.firebaseIdToken() !== idToken) return;
-        this.session.setVerifiedMember(membership.user_id, membership.username, membership.role, idToken);
-        this.notice.set(`Authenticated as ${membership.username} (${membership.role}).`);
+        const validRoles = ['OWNER', 'MANAGER', 'AGENT', 'PLAYER'];
+        if (membership.user_id !== this.session.firebaseUid()
+          || !validRoles.includes(membership.role)
+          || typeof membership.username !== 'string'
+          || !membership.username.trim()) {
+          this.clearClubData();
+          this.session.membershipStatus.set('unavailable');
+          this.notice.set('The membership response did not match the signed-in account.');
+          return;
+        }
+        const displayName = membership.nickname || membership.display_name || membership.username;
+        this.session.setVerifiedMember(membership.user_id, displayName, membership.role, idToken);
+        this.notice.set(`Authenticated as ${displayName} (${membership.role}).`);
         if (this.screen() === 'lobby' && this.canOpenClubWallet) void this.loadMemberWalletBalance();
         this.loadLobbyData();
       },
@@ -1344,7 +1376,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   private loadGameCatalog(): void {
-    this.clubApi.getGames(this.baseUrl()).subscribe({
+    this.clubApi.getGames(this.gameServerUrl()).subscribe({
       next: (catalog) => {
         if (!Array.isArray(catalog.games) || typeof catalog.active_game_id !== 'string') return;
         const supported = catalog.games.filter((game) => game.create_supported);
@@ -1376,7 +1408,7 @@ export class App implements OnInit, OnDestroy {
       || this.session.membershipStatus() !== 'verified'
       || this.activeClubDisplayId !== this.clubId) return;
 
-    this.clubApi.getTables(this.baseUrl(), this.clubId, idToken).subscribe({
+    this.clubApi.getTables(this.gameServerUrl(), this.clubId, idToken).subscribe({
       next: (tables: ClubTableSummary[]) => {
         this.lobbyTables = tables.map((table) => this.toLobbyTable(table));
       },
@@ -1385,7 +1417,7 @@ export class App implements OnInit, OnDestroy {
         this.notice.set('Unable to load club tables. Try again later.');
       }
     });
-    this.clubApi.getUnions(this.baseUrl(), this.clubId, idToken).subscribe({
+    this.clubApi.getUnions(this.gameServerUrl(), this.clubId, idToken).subscribe({
       next: (unions) => {
         this.unions.set(unions);
         const selected = this.selectedUnionId();
@@ -1393,7 +1425,7 @@ export class App implements OnInit, OnDestroy {
           this.selectedUnionId.set(unions[0]?.union_id ?? null);
         }
         for (const union of unions) {
-          this.clubApi.getUnionMembership(this.baseUrl(), union.union_id, idToken).subscribe({
+          this.clubApi.getUnionMembership(this.gameServerUrl(), union.union_id, idToken).subscribe({
             next: (membership) => {
               const isUnionAdmin = !!membership
                 && typeof membership === 'object'
@@ -1427,7 +1459,7 @@ export class App implements OnInit, OnDestroy {
       this.unionTables.set([]);
       return;
     }
-    this.clubApi.getUnionTables(this.baseUrl(), this.clubId, unionId, idToken).subscribe({
+    this.clubApi.getUnionTables(this.gameServerUrl(), this.clubId, unionId, idToken).subscribe({
       next: (tables) => this.unionTables.set(tables.map((table) => this.toLobbyTable(table))),
       error: (error: unknown) => {
         this.unionTables.set([]);
@@ -1488,7 +1520,7 @@ export class App implements OnInit, OnDestroy {
     const idToken = this.requireFirebaseToken('creating a union table');
     if (!idToken) return;
     this.busy.set('union-create');
-    this.clubApi.createUnionTable(this.baseUrl(), unionId, this.unionTableId, idToken, {
+    this.clubApi.createUnionTable(this.gameServerUrl(), unionId, this.unionTableId, idToken, {
       origin_club_id: this.clubId,
       game_id: this.selectedClubGame(),
       table_name: this.unionTableName,
@@ -1517,7 +1549,7 @@ export class App implements OnInit, OnDestroy {
     const idToken = this.requireFirebaseToken('deleting an empty union table');
     if (!idToken) return;
     this.busy.set(`union-delete:${table.id}`);
-    this.clubApi.deleteUnionTable(this.baseUrl(), unionId, table.id, idToken).subscribe({
+    this.clubApi.deleteUnionTable(this.gameServerUrl(), unionId, table.id, idToken).subscribe({
       next: () => {
         this.notice.set('Union table deleted.');
         this.busy.set('');
@@ -1616,7 +1648,7 @@ export class App implements OnInit, OnDestroy {
     };
     if (this.tableUnionId()) {
       this.runRequest('seat', () => this.clubApi.seatUnionPlayer(
-        this.baseUrl(),
+        this.gameServerUrl(),
         this.tableUnionId()!,
         this.tableId,
         this.clubId,
@@ -1650,9 +1682,9 @@ export class App implements OnInit, OnDestroy {
         || wallet.user_id !== this.session.memberId()
         || wallet.role !== this.session.role()
         || wallet.currency_type !== 'CLUB_CHIPS'
-        || !Number.isFinite(wallet.available_balance)
+        || !Number.isSafeInteger(wallet.available_balance)
         || wallet.available_balance < 0
-        || !Number.isFinite(wallet.in_play_balance)
+        || !Number.isSafeInteger(wallet.in_play_balance)
         || wallet.in_play_balance < 0) {
         throw new Error('Wallet summary did not match the signed-in club member.');
       }
@@ -1661,7 +1693,10 @@ export class App implements OnInit, OnDestroy {
         try {
           const treasury = await firstValueFrom(this.clubApi.getClubTreasury(this.baseUrl(), this.clubId, idToken));
           this.clubTreasuryBalance.set(
-            treasury.club_id === this.clubId && treasury.currency_type === 'CLUB_CHIPS'
+            treasury.club_id === this.clubId
+              && treasury.currency_type === 'CLUB_CHIPS'
+              && Number.isSafeInteger(treasury.chip_balance)
+              && treasury.chip_balance >= 0
               ? treasury.chip_balance
               : null
           );
@@ -1688,7 +1723,7 @@ export class App implements OnInit, OnDestroy {
     if (!idToken) return;
     if (this.tableUnionId()) {
       this.runRequest('start', () => this.clubApi.startUnionHand(
-        this.baseUrl(),
+        this.gameServerUrl(),
         this.tableUnionId()!,
         this.tableId,
         idToken
@@ -1734,7 +1769,7 @@ export class App implements OnInit, OnDestroy {
         return;
       }
       this.session.firebaseIdToken.set(idToken);
-      const base = this.baseUrl().replace(/^http/, 'ws');
+      const base = this.gameServerUrl().replace(/^http/, 'ws');
       const path = this.tableUnionId()
         ? `/ws/union/${encodeURIComponent(this.tableUnionId()!)}/${encodeURIComponent(this.tableId.trim())}`
         : `/ws/table/${encodeURIComponent(this.clubId.trim())}/${encodeURIComponent(this.tableId.trim())}`;
@@ -2129,8 +2164,12 @@ export class App implements OnInit, OnDestroy {
     return this.apiBase.trim().replace(/\/$/, '');
   }
 
+  gameServerUrl(): string {
+    return this.gameServerBase.trim().replace(/\/$/, '');
+  }
+
   private tableUrl(): string {
-    return `${this.baseUrl()}/clubs/${encodeURIComponent(this.clubId.trim())}/tables/${encodeURIComponent(this.tableId.trim())}`;
+    return `${this.gameServerUrl()}/clubs/${encodeURIComponent(this.clubId.trim())}/tables/${encodeURIComponent(this.tableId.trim())}`;
   }
 
   private readLocalClubs(): HomeClubCard[] {

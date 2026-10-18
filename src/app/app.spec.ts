@@ -25,6 +25,7 @@ describe('App', () => {
         provideHttpClientTesting(),
         { provide: ClubApiService, useValue: {
           getGames: () => of(testGameCatalog),
+          getMembership: () => of({ club_id: 'demo', user_id: 'player-1', username: 'Player', role: 'PLAYER' }),
           signInWithPhonePassword: () => of({ firebase_custom_token: '' }),
           requestPhonePasswordReset: () => of({}),
           confirmPhonePasswordReset: () => of({}),
@@ -56,6 +57,44 @@ describe('App', () => {
     const app = fixture.componentInstance;
     expect(app).toBeTruthy();
     expect(app.isMyTurn).toBeFalse();
+  });
+
+  it('does not verify a membership response for a different Firebase user', () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const api = TestBed.inject(ClubApiService);
+    session.setAuthenticatedIdentity('firebase-user-1', 'Player', 'firebase-token');
+    spyOn(api, 'getMembership').and.returnValue(of({
+      club_id: 'demo',
+      user_id: 'firebase-user-2',
+      username: 'Other Player',
+      role: 'OWNER'
+    }));
+
+    (app as any).loadMemberSession();
+
+    expect(session.membershipStatus()).toBe('unavailable');
+    expect(session.role()).toBe('PLAYER');
+    expect(app.notice()).toContain('did not match the signed-in account');
+  });
+
+  it('uses separate configured wallet and game-server bases', () => {
+    const originalConfig = (window as any).__COWBOYS_APP_CONFIG__;
+    (window as any).__COWBOYS_APP_CONFIG__ = {
+      apiBase: 'https://legacy.example.test',
+      walletApiBase: 'https://wallet.example.test/',
+      gameServerBase: 'https://game.example.test/',
+      clubId: 'demo',
+      firebase: null
+    };
+
+    try {
+      const app = TestBed.createComponent(App).componentInstance;
+      expect(app.baseUrl()).toBe('https://wallet.example.test');
+      expect(app.gameServerUrl()).toBe('https://game.example.test');
+    } finally {
+      (window as any).__COWBOYS_APP_CONFIG__ = originalConfig;
+    }
   });
 
   it('opens the four table-edge drawers from their controls', () => {
@@ -490,6 +529,28 @@ describe('App', () => {
     expect(ensureSpy).toHaveBeenCalledWith('http://127.0.0.1:8000', 'firebase-token');
     expect(app.globalWalletBalance()).toBe(42500);
     expect(fixture.nativeElement.querySelector('.member-wallet strong')?.textContent).toContain('42,500');
+  });
+
+  it('clears the previous account global balance before loading another account', async () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const session = TestBed.inject(UserSessionStore);
+    const api = TestBed.inject(ClubApiService);
+    const ensure = spyOn(api, 'ensureGlobalWallet').and.returnValues(
+      of({ wallet_id: 'global-a', wallet_type: 'GLOBAL_PLAYMONEY', currency_type: 'GLOBAL_PLAYMONEY', user_id: 'user-a', balance: 12000, created: false }),
+      of({ wallet_id: 'global-b', wallet_type: 'GLOBAL_PLAYMONEY', currency_type: 'GLOBAL_PLAYMONEY', user_id: 'user-b', balance: 9000, created: false })
+    );
+    spyOn(TestBed.inject(FirebaseAuthService), 'getCurrentIdToken').and.resolveTo('firebase-token');
+
+    session.setAuthenticatedIdentity('user-a', 'User A', 'firebase-token');
+    await app.loadGlobalWalletBalance();
+    expect(app.globalWalletBalance()).toBe(12000);
+
+    session.setAuthenticatedIdentity('user-b', 'User B', 'firebase-token');
+    await app.loadGlobalWalletBalance();
+
+    expect(ensure).toHaveBeenCalledTimes(2);
+    expect(app.globalWallet()?.user_id).toBe('user-b');
+    expect(app.globalWalletBalance()).toBe(9000);
   });
 
   it('should expose create-account mode using the shared identifier and password fields', () => {

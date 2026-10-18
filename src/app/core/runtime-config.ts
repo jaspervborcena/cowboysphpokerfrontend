@@ -1,7 +1,10 @@
 import type { FirebaseConfig } from './firebase-auth.service';
 
 export interface AppRuntimeConfig {
-  apiBase: string;
+  walletApiBase?: string;
+  gameServerBase?: string;
+  /** @deprecated Use walletApiBase and gameServerBase. */
+  apiBase?: string;
   clubId: string;
   firebase: FirebaseConfig | null;
 }

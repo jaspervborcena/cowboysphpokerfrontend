@@ -22,6 +22,9 @@ import { UserSessionStore } from '../../core/user-session.store';
 })
 export class WalletDashboardComponent implements OnInit {
   @Input() initialScope: 'global' | 'club' = 'global';
+  @Input() initialGlobalWallet: GlobalWalletResponse | null = null;
+  @Input() initialGlobalWalletCreated = false;
+  @Input() globalWalletProvisioning = false;
   @Output() close = new EventEmitter<void>();
 
   readonly globalWallet = signal<GlobalWalletResponse | null>(null);
@@ -40,16 +43,39 @@ export class WalletDashboardComponent implements OnInit {
   private readonly api = inject(ClubApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
   readonly session = inject(UserSessionStore);
-  private readonly apiBase = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig })
-    .__COWBOYS_APP_CONFIG__?.apiBase ?? 'http://127.0.0.1:8000';
+  private readonly runtimeConfig = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig }).__COWBOYS_APP_CONFIG__;
+  private readonly apiBase = this.runtimeConfig?.walletApiBase
+    ?? this.runtimeConfig?.apiBase
+    ?? 'http://127.0.0.1:8000';
   readonly clubId = (window as Window & { __COWBOYS_APP_CONFIG__?: AppRuntimeConfig })
     .__COWBOYS_APP_CONFIG__?.clubId ?? 'demo';
   private pendingTransactionFingerprint = '';
   private pendingTransactionId = '';
+  private initialized = false;
 
   ngOnInit(): void {
     this.activeScope.set(this.initialScope);
-    void this.loadActiveScope(this.initialScope === 'global');
+    this.initialized = true;
+    if (this.activeScope() === 'global' && this.initialGlobalWallet) {
+      this.globalWallet.set(this.initialGlobalWallet);
+      this.globalWalletCreated.set(this.initialGlobalWalletCreated);
+      this.loading.set(false);
+      return;
+    }
+    if (this.activeScope() === 'global' && this.globalWalletProvisioning) return;
+    void this.loadActiveScope();
+  }
+
+  ngOnChanges(): void {
+    if (!this.initialized || this.activeScope() !== 'global') return;
+    if (this.initialGlobalWallet) {
+      this.globalWallet.set(this.initialGlobalWallet);
+      this.globalWalletCreated.set(this.initialGlobalWalletCreated);
+      this.loading.set(false);
+      this.loadError.set('');
+      return;
+    }
+    if (!this.globalWalletProvisioning && this.loading()) void this.loadActiveScope();
   }
 
   get canOperateMemberWallets(): boolean {
@@ -65,11 +91,11 @@ export class WalletDashboardComponent implements OnInit {
   selectScope(scope: 'global' | 'club'): void {
     this.activeScope.set(scope);
     this.transferNotice.set('');
-    void this.loadActiveScope(scope === 'global');
+    void this.loadActiveScope();
   }
 
   refresh(): void {
-    void this.loadActiveScope(false);
+    void this.loadActiveScope();
   }
 
   setTransferAmount(value: string): void {
@@ -106,7 +132,15 @@ export class WalletDashboardComponent implements OnInit {
           transaction_id: this.pendingTransactionId,
           ...(note ? { note } : {})
         };
-        await firstValueFrom(this.api.sendOutClubChips(this.apiBase, this.clubId, idToken, request));
+        const result = await firstValueFrom(this.api.sendOutClubChips(this.apiBase, this.clubId, idToken, request));
+        if (result.club_id !== this.clubId
+          || result.transaction_id !== request.transaction_id
+          || result.type !== 'SEND_OUT'
+          || result.amount !== amount
+          || result.to_user_id !== target
+          || !['completed', 'idempotent_replay'].includes(result.status)) {
+          throw new Error('The wallet API returned an unexpected transfer result.');
+        }
       } else if (this.transferMode() === 'CLAIM_BACK') {
         const request: ClubWalletTransferRequest = {
           user_id: target,
@@ -114,7 +148,15 @@ export class WalletDashboardComponent implements OnInit {
           transaction_id: this.pendingTransactionId,
           ...(note ? { note } : {})
         };
-        await firstValueFrom(this.api.claimBackClubChips(this.apiBase, this.clubId, idToken, request));
+        const result = await firstValueFrom(this.api.claimBackClubChips(this.apiBase, this.clubId, idToken, request));
+        if (result.club_id !== this.clubId
+          || result.transaction_id !== request.transaction_id
+          || result.type !== 'CLAIM_BACK'
+          || result.amount !== amount
+          || result.from_user_id !== target
+          || !['completed', 'idempotent_replay'].includes(result.status)) {
+          throw new Error('The wallet API returned an unexpected transfer result.');
+        }
       } else {
         const request: ClubTreasuryTransferRequest = {
             destination_club_id: target,
@@ -122,7 +164,15 @@ export class WalletDashboardComponent implements OnInit {
             transaction_id: this.pendingTransactionId,
             ...(note ? { note } : {})
           }
-        await firstValueFrom(this.api.transferClubTreasury(this.apiBase, this.clubId, idToken, request));
+        const result = await firstValueFrom(this.api.transferClubTreasury(this.apiBase, this.clubId, idToken, request));
+        if (result.transaction_id !== request.transaction_id
+          || result.type !== 'INTER_CLUB_TRANSFER'
+          || result.from_club_id !== this.clubId
+          || result.to_club_id !== target
+          || result.amount !== amount
+          || !['completed', 'idempotent_replay'].includes(result.status)) {
+          throw new Error('The wallet API returned an unexpected transfer result.');
+        }
       }
 
       this.pendingTransactionFingerprint = '';
@@ -144,7 +194,7 @@ export class WalletDashboardComponent implements OnInit {
     }
   }
 
-  private async loadActiveScope(ensureGlobal: boolean): Promise<void> {
+  private async loadActiveScope(): Promise<void> {
     this.loading.set(true);
     this.loadError.set('');
     this.globalWalletCreated.set(false);
@@ -152,16 +202,16 @@ export class WalletDashboardComponent implements OnInit {
       const idToken = await this.firebaseAuth.getCurrentIdToken(true);
       if (!idToken) throw new Error('Sign in to view your wallets.');
       if (this.activeScope() === 'global') {
-        const wallet = ensureGlobal
-          ? await firstValueFrom(this.api.ensureGlobalWallet(this.apiBase, idToken))
-          : await firstValueFrom(this.api.getGlobalWallet(this.apiBase, idToken));
-        if (wallet.user_id !== this.session.memberId()) {
+        const wallet = await firstValueFrom(this.api.getGlobalWallet(this.apiBase, idToken));
+        if (wallet.user_id !== this.session.memberId()
+          || wallet.wallet_type !== 'GLOBAL_PLAYMONEY'
+          || wallet.currency_type !== 'GLOBAL_PLAYMONEY'
+          || !Number.isSafeInteger(wallet.balance)
+          || wallet.balance < 0) {
           throw new Error('The returned global wallet does not match the signed-in account.');
         }
         this.globalWallet.set(wallet);
-        this.globalWalletCreated.set(
-          ensureGlobal && 'created' in wallet && typeof wallet.created === 'boolean' && wallet.created
-        );
+        this.globalWalletCreated.set(false);
       } else {
         await this.loadClubWallet(idToken);
       }
@@ -179,13 +229,26 @@ export class WalletDashboardComponent implements OnInit {
     const wallet = await firstValueFrom(this.api.getMemberWalletSummary(this.apiBase, this.clubId, idToken));
     if (wallet.club_id !== this.clubId
       || wallet.user_id !== this.session.memberId()
-      || wallet.role !== this.session.role()) {
+      || wallet.role !== this.session.role()
+      || wallet.currency_type !== 'CLUB_CHIPS'
+      || !Number.isSafeInteger(wallet.available_balance)
+      || wallet.available_balance < 0
+      || !Number.isSafeInteger(wallet.in_play_balance)
+      || wallet.in_play_balance < 0) {
       throw new Error('The returned club wallet does not match the active member, role, and club.');
     }
     this.clubWallet.set(wallet);
     if (this.canTransferBetweenTreasuries) {
       try {
-        this.clubTreasury.set(await firstValueFrom(this.api.getClubTreasury(this.apiBase, this.clubId, idToken)));
+        const treasury = await firstValueFrom(this.api.getClubTreasury(this.apiBase, this.clubId, idToken));
+        this.clubTreasury.set(
+          treasury.club_id === this.clubId
+            && treasury.currency_type === 'CLUB_CHIPS'
+            && Number.isSafeInteger(treasury.chip_balance)
+            && treasury.chip_balance >= 0
+            ? treasury
+            : null
+        );
       } catch {
         this.clubTreasury.set(null);
       }

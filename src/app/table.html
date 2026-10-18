@@ -290,7 +290,7 @@
     }
   } @else if (screen() === 'replay') {
     <app-hand-replay-container
-      [apiBase]="baseUrl()"
+      [apiBase]="gameServerUrl()"
       [clubId]="clubId"
       [handId]="snapshot()?.hand_id ?? ''"
       [unionId]="snapshot()?.union_id ?? null"
@@ -483,13 +483,15 @@
 
       <div class="action-bar">
         @if (canChooseBlindEntry) {
-          <section class="blind-entry-choice" aria-labelledby="blind-entry-title">
-            <div><strong id="blind-entry-title">Join the blind rotation</strong><span>@if (currentPlayer?.blind_amount_to_post !== undefined) { Post {{ currentPlayer?.blind_amount_to_post | number }} chips now, or wait for your big blind. } @else { Post now or wait for your big blind. }</span></div>
-            <div class="blind-entry-actions">
-              <button type="button" class="post-blind-button" (click)="sendBlindEntryDecision('POST_BLIND')" [disabled]="socketStatus() !== 'connected' || blindDecisionPending()">{{ blindDecisionPending() ? 'Sending…' : 'Post blind' }}</button>
-              <button type="button" class="wait-blind-button" (click)="sendBlindEntryDecision('WAIT_FOR_BIG_BLIND')" [disabled]="socketStatus() !== 'connected' || blindDecisionPending()">Wait for big blind</button>
-            </div>
-          </section>
+          @if (currentPlayer; as blindEntryPlayer) {
+            <section class="blind-entry-choice" aria-labelledby="blind-entry-title">
+              <div><strong id="blind-entry-title">Join the blind rotation</strong><span>@if (blindEntryPlayer.blind_amount_to_post !== undefined) { Post {{ blindEntryPlayer.blind_amount_to_post | number }} chips now, or wait for your big blind. } @else { Post now or wait for your big blind. }</span></div>
+              <div class="blind-entry-actions">
+                <button type="button" class="post-blind-button" (click)="sendBlindEntryDecision('POST_BLIND')" [disabled]="socketStatus() !== 'connected' || blindDecisionPending()">{{ blindDecisionPending() ? 'Sending…' : 'Post blind' }}</button>
+                <button type="button" class="wait-blind-button" (click)="sendBlindEntryDecision('WAIT_FOR_BIG_BLIND')" [disabled]="socketStatus() !== 'connected' || blindDecisionPending()">Wait for big blind</button>
+              </div>
+            </section>
+          }
         }
         <div class="action-context">
           <span class="eyebrow">{{ isMyTurn ? 'YOUR ACTION' : 'TABLE ACTIONS' }}</span>
@@ -615,7 +617,13 @@
     </div>
   }
   @if (walletOpen()) {
-    <app-wallet-dashboard [initialScope]="walletInitialScope()" (close)="closeWallet()" />
+    <app-wallet-dashboard
+      [initialScope]="walletInitialScope()"
+      [initialGlobalWallet]="globalWallet()"
+      [initialGlobalWalletCreated]="globalWalletCreated()"
+      [globalWalletProvisioning]="globalWalletLoading()"
+      (close)="closeWallet()"
+    />
   }
   @defer (when staffDeskOpen()) {
     @if (staffDeskOpen()) {

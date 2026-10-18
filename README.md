@@ -11,7 +11,7 @@ The Angular client implements clubhouse, lobby, live-table, union-table, and han
 - Phone/password sign-in through a backend endpoint that returns a Firebase custom token, plus a separate phone OTP password-recovery flow. Phone account creation is not available.
 - One auth gate for member content, Philippine phone-number normalization, and explicit global-account state when a signed-in user has no club membership.
 - A least-privilege `PLAYER` state while membership is loading; elevated roles come from the backend membership response.
-- Configurable API base URL, club ID, and Firebase web config loaded before Angular starts.
+- Configurable wallet API base URL, game-server base URL, club ID, and Firebase web config loaded before Angular starts. Legacy `apiBase` remains a fallback for both services.
 - A home-icon menu with Create A Club and Friend Table actions. A created profile is saved in browser storage, its creator can reopen the local room as OWNER, and enter its local table previews; local seating is creator-only and does not connect to server gameplay. Server-side club creation and friend-table invites are not connected.
 - A consistent Club lobby action row for every role. Anyone can open the game picker; only verified Owners and Managers can submit creation. The picker is loaded from `GET /games` and offers only entries with `create_supported: true`. When the catalog is unavailable, creation is disabled instead of guessing supported variants.
 - Table creation defaults live in [src/app/data/table-creation-defaults.json](src/app/data/table-creation-defaults.json): NLH, 1/2 blinds, 50-1,000 buy-in, and 9 seats. Create requests include `game_id`, blinds, buy-in limits, and `table_size`; unsupported modes and advanced template settings are not offered for server-created tables.
@@ -25,10 +25,23 @@ The Angular client implements clubhouse, lobby, live-table, union-table, and han
 - Live-table sockets use WebSocket protocol v1 envelopes, force-refresh Firebase tokens for each connection, answer `PING`, and reconnect with a new full server snapshot. Player actions include `action_id`; pre-actions use `PRE_ACTION` and are displayed from the player's snapshot. The table UI renders the server's 20-second action and disconnect timers but never locally resolves turns or changes seat/connectivity state.
 - Live club tables are membership-gated and show actual empty/error results rather than demo rows. Mock Club and Global Room cards open isolated preview lobbies; only the configured club connects to backend data, and global play/invitation-based club switching are not connected.
 - Server-provided disconnect and sit-out state only. Disconnect protection, timers, and actions remain backend-authoritative.
-- An authenticated wallet dashboard that ensures/reads global playmoney, reads the signed-in member's club balance and authorized treasury balance, and submits idempotent member and inter-club transfers. It uses the documented wallet APIs, never reads wallet documents from Firestore, and keeps global playmoney separate from club chips.
+- An authenticated wallet dashboard that reads the global playmoney wallet ensured once after sign-in, reads the signed-in member's club balance and authorized treasury balance, and submits idempotent member and inter-club transfers. It uses the documented wallet APIs, never reads wallet documents from Firestore, and keeps global playmoney separate from club chips.
 - A Staff Desk cashier preview with right-side recipient checkboxes, equal whole-chip allocation for multi-member send-out and claim-back, confirmation previews, mock-fund updates, and one mock trade record per recipient. It starts with 10,000 preview chips and is explicitly labeled mock; it does not call wallet APIs or update real member/home balances.
 
 This is not yet a production-ready end-to-end client. The API and websocket backend must implement and enforce the contracts below. Home-screen club cards are mock previews; the live lobby does not substitute sample rows when table data is empty or unavailable.
+
+## Backend contract sync note
+
+The backend contract has moved away from the old local-only preview club model. The current server contract is:
+
+- self-service club creation is `POST /clubs` for an authenticated user; the server creates the club, the creator's `OWNER` membership, and the initial treasury grant
+- the initial club grant is funded from a separate `CLUB_CHIPS` giveaway reserve, not from the `GLOBAL_PLAYMONEY` reserve
+- `POST /platform/clubs` remains an admin/bootstrap-only creator path and is not a normal user-facing client feature
+- the UI should not present club creation as a local browser-only feature once the live backend contract is in place
+- agent-to-player sends, player claim-backs, club-owner-to-player transfers, and club-owner-to-agent transfers are all server-authoritative wallet movements; the frontend may trigger them, but the backend validates funds, permissions, idempotency, and ledger writes
+- all money movement must be treated as ledger-backed state, with the club treasury or the member wallet balance as the source of truth, never client-calculated balances
+
+This means the current home-screen preview club flow in [src/app/table.html](src/app/table.html) and the local browser-only creation logic in [src/app/app.ts](src/app/app.ts) are still demo-only and should be treated as temporary until the backend-backed club creation flow is enabled. The final product rule is: read-only wallet and role endpoints may be shown in the client, but all transfers, grants, and treasury movements remain backend-controlled.
 
 ## Done and still to do
 
@@ -91,7 +104,7 @@ These checks are currently UI-level only. They are not security controls. The ba
 
 ## Wallet Dashboard
 
-The dashboard uses authenticated Firebase ID tokens for wallet API requests. Global scope calls `POST /me/wallets/global-playmoney/ensure` when opened and `GET /me/wallets/global-playmoney` on refresh. The ensure operation is idempotent and grants 20,000 `GLOBAL_PLAYMONEY` only when the wallet is missing. The supplied OpenAPI explicitly says this grant does not debit the displayed platform reserve; do not present it as reserve-backed funding.
+The app calls `POST /me/wallets/global-playmoney/ensure` once after sign-in and keeps the validated response for the home control and first dashboard view. The dashboard uses authenticated Firebase ID tokens and `GET /me/wallets/global-playmoney` for later visits, scope changes, and refreshes. The ensure operation is idempotent and grants 20,000 `GLOBAL_PLAYMONEY` only when the wallet is missing. The supplied OpenAPI explicitly says this grant does not debit the displayed platform reserve; do not present it as reserve-backed funding.
 
 Club scope reads `GET /clubs/{club_id}/members/me/wallet` for the authenticated member's `available_balance` and `in_play_balance`. The API states agent and player roles share these balances. Owners and managers can also read the club treasury and initiate inter-club treasury transfers. Owners, managers, and assigned agents can submit `send-out` and `claim-back` operations with a `transaction_id`; the backend remains authoritative for authorization, balance checks, idempotency, and the in-play claim-back restriction.
 
@@ -131,7 +144,7 @@ The wallet UI does not use a dashboard fixture. The supplied API does not expose
 
 The replay feature is split into a token-authenticated API service, signal store, container, and presentation components under `src/app/features/hand-replay/`. Private hand history requests require the active Firebase ID token from the authenticated session.
 
-At startup, Firebase web configuration defaults to `src/environments/environment.ts`. The app fetches `/app-config.json` before Angular starts; `apiBase` and `clubId` come from that file, and its optional `firebase` object overrides the Firebase default. Firebase web config is public client configuration, not a server secret, and its API key should be restricted in Google Cloud Console. Protected club and union requests use the Firebase ID token. Club tables load only after club membership is verified, and there are no sample table rows when a list is empty or unavailable. Union seats are debited from the selected home club. The socket URL omits the player ID; its first v1 `AUTHENTICATE` envelope carries the token and, for union play, the home `club_id`.
+At startup, Firebase web configuration defaults to `src/environments/environment.ts`. The app fetches `/app-config.json` before Angular starts; configure `walletApiBase`, `gameServerBase`, and `clubId` in that file. Legacy `apiBase` remains a fallback for either service when its dedicated base is absent; configure `gameServerBase` explicitly when the services are deployed separately. The optional `firebase` object overrides the Firebase default. Firebase web config is public client configuration, not a server secret, and its API key should be restricted in Google Cloud Console. Protected club and union requests use the Firebase ID token. Club tables load only after club membership is verified, and there are no sample table rows when a list is empty or unavailable. Union seats are debited from the selected home club. The socket URL omits the player ID; its first v1 `AUTHENTICATE` envelope carries the token and, for union play, the home `club_id`.
 
 The backend owns heartbeat deadlines, auto-check/fold behavior, sit-out state, reconnect rules, and table snapshots. It must provide `turn_seconds_left`, `disconnect_seconds_left`, and `disconnect_timeout_count` in player snapshots. A normal action gets 20 seconds; on expiry, the server checks when legal and otherwise folds. A disconnect starts a fresh 20-second recovery window; if it expires, the server auto-folds, and a second expired disconnect window marks the player sat out. The frontend only animates these server-provided timers. A sat-out player can send correlated `SIT_IN`; the UI clears sit-out only after a confirming `TABLE_SNAPSHOT`. The frontend replies to `PING` with `PONG`, authenticates again after reconnect, and replaces local state with the full snapshot.
 
@@ -144,7 +157,7 @@ npm install
 npx ng serve
 ```
 
-Open http://localhost:4200. The backend allows local Angular origins by default; configure `CORS_ALLOWED_ORIGINS` for deployment. Set `apiBase` and `clubId` in `public/app-config.json` before startup; the table-only view does not expose development connection fields.
+Open http://localhost:4200. The backend allows local Angular origins by default; configure `CORS_ALLOWED_ORIGINS` for deployment. Set `walletApiBase`, `gameServerBase`, and `clubId` in `public/app-config.json` before startup; the table-only view does not expose development connection fields.
 
 ## Validation
 
@@ -173,3 +186,21 @@ The next phase should focus on integration and hardening rather than more visual
 - `src/app/core/user-session.store.ts` — role and member identity signals
 - `src/app/features/hand-replay/` — replay API, signal store, smart container, and presentation components
 - `src/app/app.spec.ts` — role and UI behavior tests
+
+## Authority and exposure policy sync
+
+This project is mostly aligned with the intended authority model:
+
+- the UI reads server-backed role and wallet state
+- the backend remains the source of truth for wallet validation, role enforcement, and money movement
+- table creation and seat purchase are treated as backend-authoritative flows when the server validates them
+- mock-only preview screens remain clearly separated from live production routes
+
+The remaining mismatch is that some non-production UX is still visible in the app shell, such as the local preview club and friend-table actions in [src/app/table.html](src/app/table.html). Those are acceptable as demo-only flows as long as they are not presented as real public club creation or live money movement. The final rule should remain:
+
+- read-only wallet and role endpoints are allowed in the UI
+- table creation and seat purchase are allowed only when the backend validates the user and role
+- `POST /platform/clubs` remains bootstrap/admin-only and is not a normal public client feature
+- send-out, claim-back, and treasury transfer routes remain server-authoritative and must not be trusted as client-side money logic
+
+This matches the intended backend authority model and should be treated as the enforcement standard for follow-up work.

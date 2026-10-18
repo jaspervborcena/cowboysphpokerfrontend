@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="1940" viewBox="0 0 1040 1940">
+  <defs>
+    <linearGradient id="page" x2="0" y2="1"><stop stop-color="#081b2c"/><stop offset="1" stop-color="#030c15"/></linearGradient>
+    <linearGradient id="panel" x2="0" y2="1"><stop stop-color="#0b2b43"/><stop offset="1" stop-color="#071a2b"/></linearGradient>
+    <linearGradient id="blue" x2="0" y2="1"><stop stop-color="#1677a8"/><stop offset="1" stop-color="#0a496c"/></linearGradient>
+    <linearGradient id="felt" x2="0" y2="1"><stop stop-color="#105477"/><stop offset="1" stop-color="#092941"/></linearGradient>
+    <linearGradient id="modal" x2="0" y2="1"><stop stop-color="#0b2d48"/><stop offset="1" stop-color="#071c30"/></linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".38"/></filter>
+    <clipPath id="clip1"><rect width="390" height="844" rx="12"/></clipPath>
+    <clipPath id="clip2"><rect width="390" height="844" rx="12"/></clipPath>
+    <clipPath id="clip3"><rect width="390" height="844" rx="12"/></clipPath>
+    <clipPath id="clip4"><rect width="390" height="844" rx="12"/></clipPath>
+    <style>
+      text { font-family: 'DM Sans', 'Segoe UI', sans-serif; }
+      .label { fill:#83abc2; font-size:9px; font-weight:700; letter-spacing:1.4px; }
+      .title { fill:#f0f7fb; font-size:15px; font-weight:700; }
+      .body { fill:#c8dce8; font-size:11px; }
+      .small { fill:#82a3b8; font-size:9px; }
+      .muted { fill:#68869b; font-size:9px; }
+      .line { stroke:#1b4059; stroke-width:1; }
+      .control { fill:#0a2940; stroke:#316786; stroke-width:1; }
+      .gold { fill:#f0ca62; }
+      .cyan { fill:#7bdcff; }
+    </style>
+  </defs>
+  <rect width="1040" height="1940" fill="url(#page)"/>
+  <text x="50" y="52" fill="#e8f5fc" font-size="22" font-weight="700">COWBOYS POKER</text>
+  <text x="50" y="76" class="small">MOBILE TABLE + CASHIER · FIGMA-IMPORTABLE SVG BOARD</text>
+  <g transform="translate(754 38)">
+    <text x="0" y="0" class="label">COLOR TOKENS</text>
+    <rect x="0" y="12" width="24" height="12" rx="3" fill="#07192a"/><rect x="32" y="12" width="24" height="12" rx="3" fill="#0b2b43"/><rect x="64" y="12" width="24" height="12" rx="3" fill="#1677a8"/><rect x="96" y="12" width="24" height="12" rx="3" fill="#7bdcff"/><rect x="128" y="12" width="24" height="12" rx="3" fill="#f0ca62"/>
+    <text x="0" y="39" class="muted">INK   PANEL   ACTION   LIVE   CHIPS</text>
+  </g>
+
+  <text x="50" y="126" class="label">01 · LIVE TABLE / STAND-UP DRAWER</text>
+  <text x="600" y="126" class="label">02 · LIVE TABLE / REAL-TIME RESULT</text>
+  <text x="50" y="1000" class="label">03 · CASHIER / RECIPIENT SELECTION</text>
+  <text x="600" y="1000" class="label">04 · CASHIER / CLAIM BACK REVIEW</text>
+
+  <g transform="translate(50 150)" clip-path="url(#clip1)">
+    <rect width="390" height="844" rx="12" fill="#06192a" stroke="#2b5975"/>
+    <rect width="390" height="58" fill="#07182a"/><path d="M0 58H390" class="line"/>
+    <text x="18" y="37" class="title" font-size="23">‹</text><rect x="50" y="14" width="31" height="31" fill="#0b2940" stroke="#2f7699"/><text x="58" y="35" class="cyan" font-size="14" font-weight="700">C♠</text>
+    <text x="91" y="31" fill="#e6f4fc" font-size="11" font-weight="700">COWBOYS POKER</text><text x="251" y="24" class="label">PRIVATE TABLE</text><text x="251" y="40" class="body">demo / oly</text><text x="354" y="25" class="label">STACK</text><text x="363" y="42" class="cyan" font-size="12" font-weight="700">0</text>
+    <rect y="58" width="390" height="670" fill="#082139"/>
+    <text x="16" y="83" class="small">PLO5</text><text x="16" y="101" class="title">Demo Table</text><text x="302" y="91" class="small">BLINDS</text><text x="303" y="105" class="body">0.20 / 0.40</text>
+    <ellipse cx="195" cy="390" rx="143" ry="220" fill="#091a28" stroke="#17384c" stroke-width="15"/><ellipse cx="195" cy="390" rx="130" ry="207" fill="url(#felt)" stroke="#37a6cc" stroke-width="3"/>
+    <text x="195" y="232" text-anchor="middle" class="label">COWBOYS POKER</text><text x="195" y="343" text-anchor="middle" class="small">COMMUNITY CARDS</text>
+    <g transform="translate(145 360)"><rect width="30" height="44" rx="3" fill="#f4f6ef"/><text x="6" y="17" fill="#12659d" font-size="14" font-weight="700">A</text><text x="16" y="36" fill="#1471ae" font-size="16">♦</text><rect x="34" width="30" height="44" rx="3" fill="#f4f6ef"/><text x="40" y="17" fill="#202d35" font-size="14" font-weight="700">K</text><text x="50" y="36" fill="#202d35" font-size="16">♠</text><rect x="68" width="30" height="44" rx="3" fill="#f4f6ef"/><text x="74" y="17" fill="#c64c54" font-size="14" font-weight="700">7</text><text x="84" y="36" fill="#c64c54" font-size="16">♥</text></g>
+    <rect x="160" y="423" width="70" height="24" rx="12" fill="#061827" stroke="#286a89"/><text x="195" y="439" text-anchor="middle" class="cyan" font-size="10">POT  120</text>
+    <g fill="#09233a" stroke="#65c5e8" stroke-width="2"><circle cx="195" cy="198" r="21"/><circle cx="74" cy="314" r="21"/><circle cx="316" cy="314" r="21"/><circle cx="75" cy="501" r="21"/><circle cx="315" cy="501" r="21"/><circle cx="195" cy="581" r="21"/></g><g text-anchor="middle" fill="#9ce6ff" font-size="22"><text x="195" y="206">+</text><text x="74" y="322">+</text><text x="316" y="322">+</text><text x="75" y="509">+</text><text x="315" y="509">+</text><text x="195" y="589">+</text></g>
+    <rect y="728" width="390" height="116" fill="#071a2b"/><path d="M0 728H390" class="line"/>
+    <text x="15" y="754" class="small">TABLE ACTIONS</text><text x="15" y="773" class="body">Waiting for the table</text>
+    <g><rect x="14" y="791" width="108" height="35" rx="6" class="control"/><rect x="140" y="791" width="108" height="35" rx="6" class="control"/><rect x="266" y="791" width="108" height="35" rx="6" class="control"/><text x="68" y="813" text-anchor="middle" class="body">Check / Fold</text><text x="194" y="813" text-anchor="middle" class="body">Fold</text><text x="320" y="813" text-anchor="middle" class="body">Call Any</text></g>
+    <rect width="390" height="786" y="58" fill="#020b14" opacity=".66"/>
+    <rect x="0" y="58" width="236" height="786" fill="url(#panel)" stroke="#2b6587"/>
+    <text x="18" y="94" class="title">Stand up</text><circle cx="208" cy="84" r="16" fill="#102d43" stroke="#315c77"/><text x="208" y="89" text-anchor="middle" fill="#d5efff" font-size="16">×</text><path d="M0 116H236" class="line"/>
+    <text x="17" y="143" class="body">Seat 4 · joppy2024</text>
+    <g class="body"><rect x="12" y="159" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="185" fill="#6f8b9e">♧</text><text x="52" y="185" fill="#839aa9">Stand up</text>
+      <rect x="12" y="204" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="230" fill="#6f8b9e">◉</text><text x="52" y="230" fill="#839aa9">Leave next big blind</text><rect x="180" y="216" width="32" height="18" rx="9" fill="#102f46"/><text x="196" y="229" text-anchor="middle" class="muted">OFF</text>
+      <rect x="12" y="249" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="275" fill="#6f8b9e">▤</text><text x="52" y="275" fill="#839aa9">Sit out</text><rect x="180" y="261" width="32" height="18" rx="9" fill="#102f46"/><text x="196" y="274" text-anchor="middle" class="muted">OFF</text>
+      <rect x="12" y="300" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="326" class="cyan">♢</text><text x="52" y="326">Top Up</text>
+      <rect x="12" y="351" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="377" fill="#6f8b9e">◉</text><text x="52" y="377" fill="#839aa9">Auto Rebuy</text>
+      <rect x="12" y="407" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="433" fill="#6f8b9e">⚙</text><text x="52" y="433" fill="#839aa9">Table Settings</text>
+      <rect x="12" y="452" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="478" fill="#6f8b9e">◐</text><text x="52" y="478" fill="#839aa9">Theme Settings</text>
+      <rect x="12" y="508" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="534" class="cyan">♢</text><text x="52" y="534">Cashier</text>
+      <rect x="12" y="564" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="590" class="cyan">⌂</text><text x="52" y="590">Back to club</text>
+      <rect x="12" y="609" width="212" height="43" fill="#0a2940" stroke="#173e59"/><text x="28" y="635" class="cyan">←</text><text x="52" y="635">Exit</text>
+    </g>
+  </g>
+
+  <g transform="translate(600 150)" clip-path="url(#clip2)">
+    <rect width="390" height="844" rx="12" fill="#06192a" stroke="#2b5975"/><rect width="390" height="58" fill="#07182a"/><path d="M0 58H390" class="line"/>
+    <text x="18" y="37" class="title" font-size="23">‹</text><rect x="50" y="14" width="31" height="31" fill="#0b2940" stroke="#2f7699"/><text x="58" y="35" class="cyan" font-size="14" font-weight="700">C♠</text><text x="91" y="31" fill="#e6f4fc" font-size="11" font-weight="700">COWBOYS POKER</text><text x="251" y="24" class="label">PRIVATE TABLE</text><text x="251" y="40" class="body">demo / oly</text>
+    <rect y="58" width="390" height="786" fill="#082139"/><ellipse cx="180" cy="386" rx="128" ry="214" fill="#0a1b29" stroke="#1a3c51" stroke-width="14"/><ellipse cx="180" cy="386" rx="116" ry="201" fill="url(#felt)" stroke="#329cc1" stroke-width="3"/><text x="180" y="338" text-anchor="middle" class="small">BOARD CARDS</text><text x="180" y="409" text-anchor="middle" class="muted">POT  120</text>
+    <g fill="#09233a" stroke="#65c5e8" stroke-width="2"><circle cx="180" cy="191" r="19"/><circle cx="68" cy="310" r="19"/><circle cx="291" cy="310" r="19"/><circle cx="180" cy="576" r="19"/></g><g text-anchor="middle" fill="#9ce6ff" font-size="20"><text x="180" y="198">+</text><text x="68" y="317">+</text><text x="291" y="317">+</text><text x="180" y="583">+</text></g>
+    <rect y="720" width="390" height="124" fill="#071a2b"/><text x="16" y="754" class="small">TABLE ACTIONS</text><rect x="15" y="780" width="105" height="38" rx="6" class="control"/><rect x="142" y="780" width="105" height="38" rx="6" class="control"/><rect x="269" y="780" width="105" height="38" rx="6" class="control"/><text x="68" y="804" text-anchor="middle" class="body">Fold</text><text x="195" y="804" text-anchor="middle" class="body">Check</text><text x="322" y="804" text-anchor="middle" class="body">Call</text>
+    <rect y="58" width="390" height="786" fill="#020b14" opacity=".68"/>
+    <rect x="90" y="58" width="300" height="786" fill="url(#panel)" stroke="#2b6587"/>
+    <rect x="90" y="58" width="300" height="55" fill="#12436a"/><text x="107" y="92" fill="#f0f7fb" font-size="15" font-weight="700">Real-time result</text><text x="367" y="92" text-anchor="middle" fill="#d5efff" font-size="18">×</text>
+    <g font-size="10"><rect x="103" y="125" width="274" height="34" fill="#0b2a43"/><text x="114" y="146" fill="#a5c4d8">Table Name</text><text x="365" y="146" text-anchor="end" fill="#deeffa">Demo Table</text>
+      <rect x="103" y="160" width="274" height="34" fill="#103656"/><text x="114" y="181" fill="#a5c4d8">Game</text><text x="365" y="181" text-anchor="end" fill="#deeffa">PLO5</text>
+      <rect x="103" y="195" width="274" height="34" fill="#0b2a43"/><text x="114" y="216" fill="#a5c4d8">Blinds</text><text x="365" y="216" text-anchor="end" fill="#deeffa">0.20 / 0.40</text>
+      <rect x="103" y="230" width="274" height="34" fill="#103656"/><text x="114" y="251" fill="#a5c4d8">Hand</text><text x="365" y="251" text-anchor="end" fill="#deeffa">#192810</text></g>
+    <rect x="103" y="279" width="274" height="28" fill="#16436a"/><text x="113" y="297" class="small">NICKNAME</text><text x="278" y="297" class="small">STACK</text><text x="366" y="297" text-anchor="end" class="small">STATUS</text>
+    <g font-size="10"><path d="M103 337H377M103 367H377M103 397H377" class="line"/><text x="113" y="327" fill="#c4dcea">joppy2024</text><text x="293" y="327" text-anchor="end" fill="#c4dcea">80.49</text><text x="366" y="327" text-anchor="end" fill="#79d7a7">Playing</text><text x="113" y="357" fill="#c4dcea">cool CAT</text><text x="293" y="357" text-anchor="end" fill="#c4dcea">50.03</text><text x="366" y="357" text-anchor="end" fill="#8eafc3">Waiting</text><text x="113" y="387" fill="#c4dcea">oxygen81</text><text x="293" y="387" text-anchor="end" fill="#c4dcea">0</text><text x="366" y="387" text-anchor="end" fill="#8eafc3">Waiting</text></g>
+    <rect x="103" y="421" width="274" height="70" rx="3" fill="#0b2941"/><text x="116" y="447" class="small">TABLE STATUS</text><text x="363" y="447" text-anchor="end" class="cyan" font-size="11" font-weight="700">LIVE</text><text x="116" y="475" class="small">POT</text><text x="363" y="475" text-anchor="end" class="gold" font-size="13" font-weight="700">120</text>
+    <text x="114" y="520" class="label">BOARD</text><text x="365" y="520" text-anchor="end" class="body">A♦ K♠ 7♥</text><path d="M103 535H377" class="line"/>
+  </g>
+
+  <g transform="translate(50 1024)" clip-path="url(#clip3)">
+    <rect width="390" height="844" rx="12" fill="#061a2b" stroke="#2b5975"/><rect width="390" height="58" fill="#08243a"/><text x="17" y="36" class="cyan" font-size="22">‹</text><text x="195" y="36" text-anchor="middle" fill="#edf8ff" font-size="17" font-weight="700">Cashier</text><text x="355" y="34" class="label">CLUB</text>
+    <rect y="58" width="390" height="42" fill="#082238"/><rect x="0" y="58" width="130" height="42" fill="#0d3553"/><text x="65" y="84" text-anchor="middle" class="body">Trade</text><text x="195" y="84" text-anchor="middle" class="small">Trade Record</text><text x="325" y="84" text-anchor="middle" class="small">Chip Requests</text>
+    <rect y="100" width="390" height="78" fill="#082238"/><path d="M130 106V171M260 106V171" stroke="#1b405b"/><text x="65" y="122" text-anchor="middle" class="small">AVAILABLE FUNDS</text><text x="65" y="151" text-anchor="middle" class="gold" font-size="18" font-weight="700">10,000</text><text x="195" y="122" text-anchor="middle" class="small">YOUR CHIPS</text><text x="195" y="151" text-anchor="middle" fill="#e1f2fc" font-size="17" font-weight="700">80.49</text><text x="325" y="122" text-anchor="middle" class="small">MEMBER CHIPS</text><text x="325" y="151" text-anchor="middle" fill="#e1f2fc" font-size="17" font-weight="700">130.52</text>
+    <rect x="15" y="190" width="360" height="40" rx="3" fill="#071f34" stroke="#1f4561"/><text x="30" y="216" class="muted">⌕</text><text x="52" y="216" class="small">Search member</text><text x="350" y="255" text-anchor="end" class="small">DOWNLINE · 5</text>
+    <rect x="8" y="271" width="374" height="58" fill="#09243b" stroke="#2d8bb5"/><circle cx="36" cy="300" r="18" fill="#123d59" stroke="#4a9db7"/><text x="36" y="305" text-anchor="middle" class="body">J</text><text x="66" y="296" class="title" font-size="12">joppy2024</text><text x="66" y="314" class="small">ID: member-01 · Online</text><text x="324" y="305" text-anchor="end" fill="#bdd6e5" font-size="12" font-weight="700">80.49</text><rect x="350" y="290" width="19" height="19" rx="2" fill="#0e4e70" stroke="#f0c453"/><text x="359" y="304" text-anchor="middle" class="gold" font-size="14">✓</text>
+    <rect x="8" y="335" width="374" height="58" fill="#09243b" stroke="#102f48"/><circle cx="36" cy="364" r="18" fill="#123d59" stroke="#4a9db7"/><text x="36" y="369" text-anchor="middle" class="body">C</text><text x="66" y="360" class="title" font-size="12">cool CAT</text><text x="66" y="378" class="small">ID: member-02 · 8 min ago</text><text x="324" y="369" text-anchor="end" fill="#bdd6e5" font-size="12" font-weight="700">50.03</text><rect x="350" y="354" width="19" height="19" rx="2" fill="#0e4e70" stroke="#f0c453"/><text x="359" y="368" text-anchor="middle" class="gold" font-size="14">✓</text>
+    <g><rect x="8" y="399" width="374" height="58" fill="#09243b" stroke="#102f48"/><circle cx="36" cy="428" r="18" fill="#123d59" stroke="#4a9db7"/><text x="36" y="433" text-anchor="middle" class="body">O</text><text x="66" y="424" class="title" font-size="12">oxygen81</text><text x="66" y="442" class="small">ID: member-03 · Yesterday</text><text x="324" y="433" text-anchor="end" fill="#bdd6e5" font-size="12" font-weight="700">0</text><rect x="350" y="418" width="19" height="19" rx="2" fill="#061a2b" stroke="#47718a"/></g>
+    <rect y="730" width="390" height="114" fill="#061a2b"/><path d="M0 730H390" class="line"/><text x="17" y="756" class="small">AMOUNT</text><text x="312" y="756" text-anchor="end" class="cyan" font-size="9">2 SELECTED</text><rect x="319" y="739" width="55" height="32" rx="3" fill="#08253c" stroke="#28506b"/><text x="330" y="760" class="body">100</text>
+    <rect x="10" y="783" width="116" height="43" rx="3" fill="#0b2c45" stroke="#29506d"/><rect x="137" y="783" width="116" height="43" rx="3" fill="#0b2c45" stroke="#29506d"/><rect x="264" y="783" width="116" height="43" rx="3" fill="url(#blue)" stroke="#2186ad"/><text x="68" y="809" text-anchor="middle" class="body">Claim back</text><text x="195" y="809" text-anchor="middle" class="body">Send ticket</text><text x="322" y="809" text-anchor="middle" fill="#effaff" font-size="11" font-weight="700">Send out</text>
+  </g>
+
+  <g transform="translate(600 1024)" clip-path="url(#clip4)">
+    <rect width="390" height="844" rx="12" fill="#061a2b" stroke="#2b5975"/><rect width="390" height="58" fill="#08243a"/><text x="17" y="36" class="cyan" font-size="22">‹</text><text x="195" y="36" text-anchor="middle" fill="#edf8ff" font-size="17" font-weight="700">Cashier</text>
+    <rect y="58" width="390" height="42" fill="#082238"/><rect x="0" y="58" width="130" height="42" fill="#0d3553"/><text x="65" y="84" text-anchor="middle" class="body">Trade</text><text x="195" y="84" text-anchor="middle" class="small">Trade Record</text><text x="325" y="84" text-anchor="middle" class="small">Chip Requests</text>
+    <rect y="100" width="390" height="730" fill="#071a2b"/><g opacity=".4"><rect x="12" y="126" width="366" height="52" fill="#09243b"/><rect x="12" y="185" width="366" height="52" fill="#09243b"/><rect x="12" y="244" width="366" height="52" fill="#09243b"/><rect x="12" y="303" width="366" height="52" fill="#09243b"/></g>
+    <rect y="830" width="390" height="14" fill="#061a2b"/>
+    <rect width="390" height="786" y="58" fill="#020b14" opacity=".72"/>
+    <rect x="23" y="170" width="344" height="500" rx="5" fill="url(#modal)" stroke="#2b5873" filter="url(#shadow)"/>
+    <rect x="24" y="171" width="342" height="52" rx="5" fill="#12436a"/><text x="44" y="203" fill="#edf8ff" font-size="16" font-weight="700">Claim Back</text><circle cx="341" cy="197" r="15" fill="#102d43" stroke="#315c77"/><text x="341" y="202" text-anchor="middle" fill="#d5efff" font-size="17">×</text>
+    <rect x="43" y="240" width="304" height="45" rx="3" fill="#082b43"/><text x="56" y="267" class="small">SELECTED PLAYERS' CHIPS</text><text x="332" y="267" text-anchor="end" class="gold" font-size="15" font-weight="700">130.52</text>
+    <text x="44" y="312" class="small">TOTAL AMOUNT</text><rect x="43" y="323" width="304" height="46" rx="3" fill="#071f33" stroke="#28516e"/><text x="56" y="352" class="body" font-size="15">100</text>
+    <rect x="43" y="384" width="304" height="53" rx="3" fill="#0a2942" stroke="#173d59"/><text x="56" y="406" class="body">joppy2024</text><text x="56" y="424" class="small">Balance 80.49 · Remaining 30.49</text><text x="332" y="416" text-anchor="end" class="gold" font-size="14" font-weight="700">50</text>
+    <rect x="43" y="444" width="304" height="53" rx="3" fill="#0a2942" stroke="#173d59"/><text x="56" y="466" class="body">cool CAT</text><text x="56" y="484" class="small">Balance 50.03 · Remaining 0.03</text><text x="332" y="476" text-anchor="end" class="gold" font-size="14" font-weight="700">50</text>
+    <rect x="43" y="512" width="304" height="45" rx="3" fill="#082b43"/><text x="56" y="540" class="small">CLUB FUNDS AFTER CLAIM</text><text x="332" y="540" text-anchor="end" class="gold" font-size="15" font-weight="700">10,100</text>
+    <rect x="43" y="583" width="140" height="45" rx="3" fill="#0b2c45" stroke="#29506d"/><rect x="193" y="583" width="154" height="45" rx="3" fill="url(#blue)" stroke="#2186ad"/><text x="113" y="611" text-anchor="middle" class="body">Cancel</text><text x="270" y="611" text-anchor="middle" fill="#effaff" font-size="12" font-weight="700">Confirm</text>
+  </g>
+
+  <text x="50" y="1902" class="muted">SVG IMPORT NOTE · Import into Figma as vectors; frames are grouped by screen and use editable text/shapes.</text>
+</svg>

@@ -1,3 +1,64 @@
+# Current codebase review
+
+## Executive summary
+
+The frontend is now a substantial Angular application with the main member experience wired up: Firebase authentication, role resolution, protected club membership flow, lobby and table UI, live table websocket handling, hand replay, wallet dashboard, and mock operational screens. The implementation is concentrated in [src/app/app.ts](src/app/app.ts), [src/app/core/club-api.service.ts](src/app/core/club-api.service.ts), [src/app/core/firebase-auth.service.ts](src/app/core/firebase-auth.service.ts), and [src/app/core/user-session.store.ts](src/app/core/user-session.store.ts).
+
+## Backend contract sync
+
+The backend contract has changed for club creation:
+
+- self-service club creation is now `POST /clubs` for an authenticated member
+- the initial grant comes from a separate `CLUB_CHIPS` giveaway reserve
+- `POST /platform/clubs` remains the bootstrap/admin-only route
+- the current browser-only preview club flow should remain demo-only until the live server-backed route is wired up
+
+This matters because the repo still contains preview-only club creation logic in [src/app/app.ts](src/app/app.ts) and the home menu entry in [src/app/table.html](src/app/table.html). Those flows are not production-ready and should not be treated as the final club-creation contract.
+
+## What we have done
+
+- Built the Angular client shell for club membership, lobby, table, replay, wallet, and staff-desk flows.
+- Added Firebase email/password, Google, and custom-token sign-in wiring, plus token refresh and authenticated session handling.
+- Added role-aware session state with `OWNER`, `MANAGER`, `AGENT`, `PLAYER`, and `UNION_ADMIN` handling.
+- Integrated backend-facing APIs for membership lookup, game catalog, wallet read/ensure, treasury operations, club and union table listings, and seat/table requests.
+- Implemented table creation defaults and game selection rules with server-supported `game_id` values and `table_size`-based constraints.
+- Added live-table websocket protocol handling for authentication, reconnect, action correlation, pre-action values, and server snapshot replacement.
+- Added hand replay support and wallet operations with server-authoritative balance checks and idempotent financial requests.
+- Included mock preview flows for the Staff Desk cashier and local club preview tables without claiming live backend support.
+
+## What remains to be done
+
+### P0: contract and backend hardening
+
+- Validate and implement the backend phone/password sign-in and OTP reset endpoints.
+- Enforce server-side authorization for protected routes and websocket actions.
+- Complete atomic seat/buy-in validation and re-checking of wallet balances on the backend.
+- Finalize live wallet and treasury behavior against the deployed APIs, including idempotency and role checks.
+- Confirm the backend contract for club creation, membership activation, and invitation acceptance.
+
+### P1: live table protocol and state authority
+
+- Implement server-authoritative blind decisions, disconnect and sit-out rules, and timeout policy.
+- Confirm `SIT_IN`, turn deadlines, reconnect behavior, and snapshot-driven table state handling on the backend.
+- Keep the frontend as a presentation layer: render server-provided timers and states, never infer hidden state locally.
+
+### P2: money operations and durable state
+
+- Define durable wallet ledger models, club treasury and table escrow rules, and multi-recipient transfer flows.
+- Implement player-initiated cash-out, leave-seat, top-up, and reconciliation flows when contracts exist.
+- Add durable table-state recovery and settlement logic before multi-instance backend deployment.
+- Complete club invitation, acceptance, and union creation/invitation workflows.
+
+## Recommended next step order
+
+1. Backend verification for phone auth and wallet/seat authorization.
+2. Live integration testing for club membership, wallet balance, and seat buy-in flows.
+3. Server-authoritative timing and sit-out policy implementation for tables.
+4. Invitation, union, and durable financial ledger work.
+5. Final end-to-end validation against the real backend and Firebase environment.
+
+The project is no longer a blank frontend shell, but it still depends on backend implementation and live contract verification to reach production readiness.
+
 # Next Phase TODO
 
 ## Goal
@@ -56,7 +117,7 @@ These are documented by the backend contract attachment, but have not been indep
 - [x] **Contract:** Include `game_id` in table summaries and expose `/games` fields `active_game_id`, `display_name`, and `create_supported`; the frontend resolves labels through the catalog and does not infer NLH when the ID is absent.
 - [ ] **Backend + contract:** Build and test the game-variant engine/adapters, then define API fields for table name, game variants, SNG/MTT modes, and all fields in `src/app/data/table-creation-defaults.json` before sending those settings for server-created tables.
 - [ ] **Contract:** Confirm or document `GET /unions/{union_id}/membership/me`; the frontend uses it to identify union admins, but it is absent from the supplied API guide.
-- [ ] **Deployment:** Configure the Firebase web settings in `src/environments/environment.ts` (or runtime override) and `apiBase`/`clubId` in `public/app-config.json` for each environment; verify email/password, Google, and phone/password sign-in plus membership lookup against live services.
+- [ ] **Deployment:** Configure the Firebase web settings in `src/environments/environment.ts` (or runtime override) and `walletApiBase`/`gameServerBase`/`clubId` in `public/app-config.json` for each environment; verify email/password, Google, and phone/password sign-in plus membership lookup against live services.
 - [x] **Frontend:** Replace the remaining hardcoded table ID/default selection with configured or API-selected table state.
 - [x] **Frontend:** Load `GET /games`, default to `active_game_id`, include `game_id` on create requests, and only offer `create_supported` catalog entries.
 - [ ] **Frontend:** Replace the mock home-carousel club/global preview cards with invitation-backed clubs and connected global-game data when those services exist.
@@ -85,7 +146,9 @@ These are documented by the backend contract attachment, but have not been indep
 - [x] **Backend contract:** The supplied OpenAPI specifies one club-member balance shared across AGENT and PLAYER roles; the frontend uses that member summary rather than separate role wallets.
 - [ ] **Backend + integration:** Verify persistent `GLOBAL_PLAYMONEY` wallet creation and one-time 20,000-chip grant on ensure, with separation from club chips and no platform-reserve debit as documented.
 - [ ] **Backend + integration:** Verify that `POST /platform/clubs` atomically creates the documented 10,000 `CLUB_CHIPS` treasury grant, leaves the owner's personal member balance at zero, and cannot grant twice on retries.
-- [ ] **Backend:** Specify double-entry movements for treasury-to-agent funding, agent-to-player distribution/claim-back, player buy-in to table escrow, hand settlement, and cash-out. Commit ledger entries and cached balances atomically and idempotently.
+- [ ] **Backend + integration:** Verify the live self-service club path `POST /clubs` and the initial club-chip grant from `platform_wallets/club-chip-giveaway-reserve`, confirming the reserve funding is distinct from the global play-money wallet.
+- [ ] **Backend:** Specify double-entry movements for treasury-to-agent funding, agent-to-player distribution/claim-back, club-owner-to-player payouts, club-owner-to-agent payouts, player buy-in to table escrow, hand settlement, and cash-out. Commit ledger entries and cached balances atomically and idempotently.
+- [ ] **Contract:** Confirm the live transfer semantics for `agent -> player`, `player -> agent claim-back`, `club owner -> player`, and `club owner -> agent` flows as server-authoritative treasury movements that depend on the current member and club wallet balances rather than client-side arithmetic.
 - [ ] **Backend + frontend:** Add authenticated member lookup/search and transaction-history APIs. Define an atomic multi-recipient send-out/claim-back contract with per-recipient ledger records, authoritative member/treasury balance updates, idempotency, and a response that supports refreshing home balances; current OpenAPI accepts one `user_id` per transfer and the Staff Desk cashier remains mock-only.
 - [x] **Frontend:** Integrate Wallet Dashboard operator `send-out`, `claim-back`, and inter-club treasury transfer requests with UUID `transaction_id` values. The separate Staff Desk cashier supports mock multi-recipient flows only. The backend must remain authoritative for role/downline access, available funds, and claim-back while in-play balance is nonzero.
 - [ ] **Backend + frontend:** Define and implement a player-initiated cash-out request/approval workflow. The supplied guide says this API is absent; keep the UI request pending/mock-only until the contract exists, and do not change balances locally.

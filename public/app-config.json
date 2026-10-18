@@ -1,5 +1,5 @@
 {
-  "apiBase": "https://cowboys-wallet-api-4rusyqoipa-de.a.run.app",
+  "walletApiBase": "https://cowboys-wallet-api-4rusyqoipa-de.a.run.app",
   "clubId": "demo",
   "firebase": null
 }

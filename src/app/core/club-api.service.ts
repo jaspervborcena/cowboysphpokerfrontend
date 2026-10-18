@@ -4,14 +4,21 @@ import { Observable } from 'rxjs';
 
 export interface ClubMembershipResponse {
   club_id: string;
+  club_uuid?: string;
   user_id: string;
+  player_id?: string;
   username: string;
+  display_name?: string;
+  nickname?: string;
   role: 'OWNER' | 'MANAGER' | 'AGENT' | 'PLAYER';
+  member_status?: string;
 }
 
 export interface ClubMemberWalletSummary {
   club_id: string;
+  club_uuid?: string;
   user_id: string;
+  player_id?: string;
   role: 'OWNER' | 'MANAGER' | 'AGENT' | 'PLAYER';
   currency_type: 'CLUB_CHIPS';
   available_balance: number;
