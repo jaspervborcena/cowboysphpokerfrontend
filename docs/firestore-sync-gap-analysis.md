@@ -4,22 +4,16 @@ This document is based on the schema and sample payloads provided in the attache
 
 ## 1) Source of truth
 
-The current repo-backed implementation currently supports the following model:
+The current API model supports one club-member balance pair (`chip_balance` and `in_play_balance`) for both AGENT and PLAYER roles, plus separate treasury and global-playmoney balances. Player/table state is stored in club and union collections; runtime and audit data remain backend-owned.
 
-- one club-member wallet pair: `chip_balance` and `in_play_balance`
-- player and table state stored in the club and union collections
-- runtime and audit data kept separate from the UI-facing state
-- no separate agent/player/table-escrow wallet model yet
-
-The target model described in the larger backend plan separates:
+Keep these purposes distinct in the UI and any future normalized storage:
 
 - `GLOBAL_PLAYMONEY`
 - `CLUB_TREASURY`
-- `CLUB_AGENT`
-- `CLUB_PLAYER`
+- `CLUB_MEMBER` (`CLUB_CHIPS`), shared by members with AGENT or PLAYER roles
 - `TABLE_ESCROW`
 
-That target model is not the live repo state yet.
+`DIAMONDS` is a separate proposed premium currency, not a club-table balance. AGENT and PLAYER are authorization roles, not separate wallet types in the current API. A normalized account/ledger schema would require an explicit backend contract and migration plan; it is not a frontend requirement today.
 
 ---
 
@@ -29,7 +23,7 @@ These collections are already present in the current schema and map directly to 
 
 | Collection | Status | UI fit | Notes |
 |---|---|---|---|
-| `platform_wallets/global-playmoney-reserve` | Synced | Internal only | Reserve wallet for demo/global funding |
+| `platform_wallets/global-playmoney-reserve` | Synced | Internal only | Legacy/platform reserve record; global-wallet ensure does not debit it under the current API contract |
 | `platform_wallets/global-playmoney-reserve/transactions/{transaction_id}` | Synced | Logging/debug only | Not shown to the app UI |
 | `global_wallets/{user_id}` | Synced | Global play-money wallet | Matches the global wallet feature |
 | `global_wallets/{user_id}/transactions/{transaction_id}` | Synced | Logging/debug only | Not exposed to the UI |
@@ -139,28 +133,22 @@ Use them as summarized sources for the replay/settlement views and keep private 
 
 The current schema is close, but there are still missing pieces relative to the new UI and the future contract model.
 
-### 5.1 Missing target wallet split
+### 5.1 Wallet model and possible normalization
 
-The current implementation still uses a single member wallet row. The target model separates:
+The current API uses one club-member balance for both AGENT and PLAYER roles. Do not create separate agent/player balances or collections solely because a member has one of those roles. If the backend later normalizes wallet storage, preserve these distinct purposes:
 
 - `GLOBAL_PLAYMONEY`
 - `CLUB_TREASURY`
-- `CLUB_AGENT`
-- `CLUB_PLAYER`
+- `CLUB_MEMBER` (`CLUB_CHIPS`)
 - `TABLE_ESCROW`
 
-This means the current backend is not yet aligned with the future money model.
+Possible storage, subject to backend design and migration planning:
 
-Recommended new/backend target structure:
-
-- `wallets/{wallet_id}` or `wallet_accounts/{wallet_id}`
-- `wallets/{wallet_id}/ledger/{entry_id}`
-- `clubs/{club_id}/treasury/{wallet_id}`
-- `clubs/{club_id}/agents/{user_id}`
-- `clubs/{club_id}/players/{user_id}`
+- `wallet_accounts/{wallet_id}`
+- `wallet_ledger/{entry_id}` with a required `wallet_id` reference
 - `tables/{table_id}/escrow`
 
-This is the most important new collection model to create if the project is moving toward the target wallet architecture.
+The current `clubs/{club_id}/members/{user_id}` balance and `clubs/{club_id}/transactions/{transaction_id}` records remain the existing contract. A normalized ledger is a backend migration decision; roles govern authorization and downline rules, not separate member balances.
 
 ### 5.2 Missing club invitation / membership activation flow
 
@@ -193,18 +181,13 @@ Recommended additions:
 
 This is distinct from the real club table model.
 
-### 5.4 Missing explicit transfer-ledger collections
+### 5.4 Missing transaction-history and batch-transfer API contracts
 
-The current schema has generic transaction documents but not a dedicated transfer-ledger pattern for send-out, claim-back, inter-club transfer, and escrow movement.
+The current schema already has `clubs/{club_id}/transactions/{transaction_id}` for member send-out and claim-back. The supplied Wallet API has no transaction-history or member-search endpoint, and accepts one recipient per transfer. This is an API/workflow gap, not evidence that separate ledger collections are needed.
 
-Recommended additions:
+Contract requirement:
 
-- `club_wallet_transfers/{transaction_id}`
-- `club_wallet_claimbacks/{transaction_id}`
-- `club_wallet_sendouts/{transaction_id}`
-- `table_escrow_movements/{movement_id}`
-
-These would make the UI and backend traceability much cleaner.
+Keep one authoritative transaction/ledger record per operation, keyed by `transaction_id`, with documented type and scope. Define transaction-history queries and any atomic multi-recipient contract before building UI; do not create parallel send-out/claim-back collections. Table escrow movements belong in the authoritative table/wallet ledger contract if and when that is introduced.
 
 ### 5.5 Missing admin/owner settlement or reporting structure for table lifecycle
 
@@ -245,19 +228,20 @@ The issue is not whether the collection exists; it is whether backend writes enf
 
 The main mismatch is between the current schema and the latest UI/contract direction.
 
-### Current model
+### Current API/storage model
 
 - member wallet is embedded on the member document
+- AGENT and PLAYER roles share the same member balance
 - no separate agent/player/table-escrow accounts
 - transaction events are generic and not strongly partitioned by flow
 
-### UI target model
+### UI/API requirements
 
-- wallet state must be separated by scope and purpose
+- global play money, club treasury, member available/in-play balance, and per-table stack/escrow must remain separate values
 - treasury, member, and table funds must not be conflated
-- send-out/claim-back and buy-in operations need ledger traceability with idempotency
+- send-out/claim-back and buy-in operations need server-authoritative idempotency and traceability; existing club transaction records should not be duplicated into flow-specific collections
 
-This means the current Firestore model is partially aligned but not fully aligned with the intended new UI and money model.
+This is primarily an API visibility and verification gap. A storage redesign is not required to use the current UI contract; if pursued, it needs a backend-owned migration plan.
 
 ---
 
@@ -273,9 +257,9 @@ This means the current Firestore model is partially aligned but not fully aligne
 
 ### Needs creation or redesign for the next-step backend
 
-1. separate wallet/account collections for the target model
+1. verify current shared member-wallet and treasury contracts, and decide explicitly whether normalized wallet/account collections are needed
 2. explicit invitation and membership activation tracking
-3. transfer-ledger collections for send-out / claim-back / inter-club movement
+3. transaction-history and atomic multi-recipient API contracts using the existing authoritative ledger model
 4. table escrow and lifecycle collections
 5. strict backend enforcement for all writes
 
@@ -293,9 +277,8 @@ This means the current Firestore model is partially aligned but not fully aligne
 
 ### Add next
 
-- `wallet_accounts/{wallet_id}` or equivalent collection for target wallet split
 - `club_invitations/{invitation_id}`
-- `club_wallet_transfers/{transaction_id}`
+- transaction-history and atomic multi-recipient API support for existing transactions
 - `table_escrow/{table_id}` or `tables/{table_id}/escrow`
 - `table_lifecycle/{table_id}`
 
@@ -310,10 +293,10 @@ This means the current Firestore model is partially aligned but not fully aligne
 
 ## 10) Bottom line
 
-The collection set already present is good for the current frontend workflow, and most of the important UI data is already represented. The true gap is not broad missing-state; it is that the schema has not yet been upgraded to the target financial and lifecycle model that the new UI expects.
+The collection set already present supports much of the current frontend workflow. The main gaps are API verification/visibility, invitations, table lifecycle, and backend enforcement. The UI does not require separate AGENT and PLAYER wallets; any storage normalization is a separate backend decision.
 
 So:
 
 - yes, there are fields and flows that need a collection model behind them
 - no, the app is not missing all collections
-- but the project does need a new wallet/account split and clearer invitation / transfer / escrow collections before production-grade sync is complete
+- but the project does need verified financial APIs, clear invitation/lifecycle contracts, and strict backend enforcement before production-grade sync is complete

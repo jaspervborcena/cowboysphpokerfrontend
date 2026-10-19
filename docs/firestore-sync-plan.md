@@ -14,7 +14,7 @@ The browser UI must use Firebase-authenticated wallet and game calls and must no
 - Do not access wallet documents directly from Firestore. User/global wallet creation and member wallet reads must go through the wallet API.
 - The UI must call `POST /me/wallets/global-playmoney/ensure` once after sign-in, then read `GET /me/wallets/global-playmoney` on later loads. The wallet is separate from club chips and is intentionally not a table stack.
 - Use `GET /clubs/{club_id}/members/me` to resolve the current role and active membership. For club UUID-based routes, pass the UUID returned as `club_uuid`, not the 8-digit business `club_id`.
-- Treat `GLOBAL_PLAYMONEY`, `CLUB_TREASURY`, `CLUB_AGENT`, `CLUB_PLAYER`, and `TABLE_ESCROW` as distinct wallet scopes. Do not add balances across scopes together.
+- Treat `GLOBAL_PLAYMONEY`, `CLUB_TREASURY`, the shared `CLUB_MEMBER` (`CLUB_CHIPS`) balance, and `TABLE_ESCROW` as distinct scopes. AGENT and PLAYER are authorization roles over the same member balance in the current API. Do not add balances across scopes together.
 - Local tables and union tables are separate flows. Local table create/start is for `OWNER`/`MANAGER`; union table create/start/delete is for `UNION_ADMIN` and uses the active home club in the seat purchase and socket authentication.
 - WebSocket v1 uses `AUTHENTICATE`, `TABLE_SNAPSHOT`, `PLAYER_ACTION`, `PRE_ACTION`, `PING`/`PONG`, and numeric error codes. Replace the full table state on each snapshot. Never merge partial state.
 - Match UI behavior on numeric `code`, not on free-form error strings. The valid error codes include `40101`, `40301`, `40401`, `40901`, `40902`, `42901`, `50001`, and `50002`.
@@ -26,7 +26,7 @@ The canonical UI semantics are:
 
 - `GLOBAL_PLAYMONEY`: user play money wallet, not club chips. Provision it through the wallet API; do not mix it with member club balances.
 - `CLUB_TREASURY`: club-owned treasury balance visible to authorized owner/manager screens. Load it through `GET /clubs/{club_id}/wallet`.
-- `CLUB_PLAYER`: the current member balance for a selected club, exposed as `available_balance` and `in_play_balance` by `GET /clubs/{club_id}/members/me/wallet`.
+- `CLUB_MEMBER` (`CLUB_CHIPS`): the current member balance for a selected club, shared by AGENT and PLAYER roles and exposed as `available_balance` and `in_play_balance` by `GET /clubs/{club_id}/members/me/wallet`.
 - `TABLE_ESCROW`: the seat stack for one table. It is not spendable wallet balance and should be displayed separately from available club chips.
 
 ### Action and retry contract
@@ -50,7 +50,7 @@ The canonical UI semantics are:
 - `transaction_id` is the canonical ledger/transfer record ID. A separate `trade` collection is optional only if the backend has a dedicated trade workflow; otherwise, `transaction_id` is the real authoritative ID.
 - In current member documents, `chip_balance` is the member's available club-chip balance; the wallet API exposes it as `available_balance`. `in_play_balance` is the member's total club chips reserved into table seats. Each table seat's `stack` is that player's balance at that specific table. Do not map `chip_balance` to a table stack.
 - Current membership authorization reads `status == "active"` and `role`; `member_status` is a proposed future field, not currently returned by the API.
-- The target model described in [database/README.md](database/README.md) separates `GLOBAL_PLAYMONEY`, `CLUB_TREASURY`, `CLUB_AGENT`, `CLUB_PLAYER`, and `TABLE_ESCROW`, but the live repo is not there yet.
+- A normalized wallet-account model is a possible backend migration, not the current API contract. If adopted, preserve `GLOBAL_PLAYMONEY`, `CLUB_TREASURY`, shared `CLUB_MEMBER` (`CLUB_CHIPS`), and `TABLE_ESCROW` as distinct purposes; do not create separate AGENT and PLAYER balances without an explicit product and migration decision.
 - Raw hand audit documents are backend-only and must not be exposed to the UI.
 - Runtime ownership and lease state (`.../runtime/lease`, `.../runtime/state`) are internal backend tracking and not UI business data.
 - This document is a contract and migration plan; it does not require a schema rewrite in the live Firestore database today.
@@ -280,7 +280,7 @@ These are the next additions to make the UI contract match the newer business mo
 
 Purpose:
 - separate wallet purpose from raw member balance
-- unify account-level balance state for `DIAMONDS`, `GLOBAL_PLAYMONEY`, `CLUB_TREASURY`, `CLUB_AGENT`, `CLUB_PLAYER`, and `TABLE_ESCROW`
+- represent distinct purposes such as `DIAMONDS`, `GLOBAL_PLAYMONEY`, `CLUB_TREASURY`, shared `CLUB_MEMBER` (`CLUB_CHIPS`), and `TABLE_ESCROW`, if a backend migration to normalized accounts is approved. AGENT/PLAYER remain member roles, not separate wallet types under the current contract.
 - keep each ledger entry as a small, flat document that references its wallet/account IDs
 
 Every `wallet_ledger/{entry_id}` document must include `wallet_id` (the parent wallet document ID) and, for scoped operations, the relevant `player_id`, `club_id`, or `table_id`. The record stays top-level but retains its parent references.

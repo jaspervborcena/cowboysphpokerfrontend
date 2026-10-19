@@ -37,6 +37,7 @@ The backend contract has moved away from the old local-only preview club model. 
 - self-service club creation is `POST /clubs` for an authenticated user; the server creates the club, the creator's `OWNER` membership, and the initial treasury grant
 - the initial club grant is funded from a separate `CLUB_CHIPS` giveaway reserve, not from the `GLOBAL_PLAYMONEY` reserve
 - `POST /platform/clubs` remains an admin/bootstrap-only creator path and is not a normal user-facing client feature
+- These are distinct creation paths. Do not infer that the self-service grant amount or idempotency behavior is the same as the bootstrap route; verify each against its own backend contract before integration.
 - the UI should not present club creation as a local browser-only feature once the live backend contract is in place
 - agent-to-player sends, player claim-backs, club-owner-to-player transfers, and club-owner-to-agent transfers are all server-authoritative wallet movements; the frontend may trigger them, but the backend validates funds, permissions, idempotency, and ledger writes
 - all money movement must be treated as ledger-backed state, with the club treasury or the member wallet balance as the source of truth, never client-calculated balances
@@ -125,6 +126,7 @@ This frontend assumes a backend exists for the following endpoints and behavior:
 - authorized treasury read and inter-club transfer at `GET /clubs/{club_id}/wallet` and `POST /clubs/{club_id}/wallet/transfers`
 - authorized member `send-out` and `claim-back` at `POST /clubs/{club_id}/wallet/send-out` and `POST /clubs/{club_id}/wallet/claim-back`, with UUID `transaction_id` idempotency
 - club creation at `POST /platform/clubs`, which the supplied UI guide says credits 10,000 `CLUB_CHIPS` to `CLUB_TREASURY` and leaves the owner's personal member balance at zero
+- self-service club creation at `POST /clubs`, including atomic owner membership and treasury creation, with the initial grant funded from the `CLUB_CHIPS` giveaway reserve. Keep this distinct from the admin/bootstrap route above; confirm the live grant amount and retry semantics against the backend before treating them as verified.
 - table list or club-lobby data
 - hand start and table update streams
 - authenticated websocket access for table state
@@ -167,6 +169,18 @@ npx ng test --watch=false
 ```
 
 The Angular production build and unit tests validate frontend behavior and API request shapes; they do not prove that backend routes or security enforcement are live. Configure Firebase for each deployment, implement the API contracts, and verify club invitation acceptance creates or activates the associated membership before integration testing.
+
+## Additional release gates
+
+The current frontend build and unit tests are not production sign-off. Before release, add and pass these gates:
+
+- Security: review Firestore Rules and backend authorization as separate controls; test role and membership denial paths, token expiry/revocation, rate limits, replay/idempotency, and cross-club/union access. Never rely on UI role checks or client-supplied actor IDs.
+- Operations: define service health and alert ownership, deployment rollback, incident response, and tested backup/restore procedures for authoritative wallet, membership, hand, and table data. Set measurable availability and recovery targets.
+- Privacy and account lifecycle: document data collected, retention/deletion rules, user export/deletion behavior, and handling of financial/audit records when an account or membership closes.
+- Integration and load: run browser end-to-end tests against the intended Firebase and backend environments, plus concurrent buy-in/transfer, reconnect, retry, and recovery tests. Make these required CI or release checks.
+- Product/legal policy: before any real-value purchase, redemption, or cash-out is offered, resolve applicable age, geographic eligibility, identity/payment, responsible-play, refund, and compliance requirements with the product owner and qualified counsel.
+
+These are release requirements to define and verify, not claims that the current app or backend already implements them.
 
 ## Next phase focus
 
