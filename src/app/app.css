@@ -690,6 +690,11 @@ input:focus { border-color: #63add3; box-shadow: 0 0 0 2px #58b5e51f; }
 .club-profile-form input { height: 42px; }
 .club-profile-form textarea { min-height: 108px; resize: vertical; padding: 10px; }
 .club-profile-form .club-profile-save { min-height: 42px; border: 1px solid #4798c5; background: linear-gradient(#1877ad, #0e5686); color: #effaff; font-size: 13px; }
+.friend-table-note, .my-tables-note { color: #a5c3d4; font-size: 11px; line-height: 1.5; }
+.my-tables-screen { padding-top: 13px; }
+.my-tables-topbar h1 { margin: 0; color: #e4f3fc; font: 600 14px Georgia, serif; }
+.my-table-club { display: block; overflow: hidden; color: #79bad7; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.my-table-open { min-height: 28px; display: flex; align-items: center; justify-content: space-between; margin-top: 8px; padding: 0 8px; border: 1px solid #2e7897; border-radius: 3px; background: #123d58; color: #d7f3ff; font-size: 8px; font-weight: 700; }
 .role-card { padding: 10px 11px; border: 1px solid #234964; border-radius: 5px; background: #0b263b; }
 .role-card.current-role { border-color: #42a4cc; background: linear-gradient(110deg, #123b53, #0b293e); box-shadow: inset 3px 0 #53c3e8; }
 .role-card-heading { display: flex; align-items: center; gap: 8px; }

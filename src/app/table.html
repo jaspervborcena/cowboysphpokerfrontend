@@ -13,8 +13,9 @@
         <div class="hall-icons"><button type="button" aria-label="Home" aria-haspopup="menu" [attr.aria-expanded]="homeMenuOpen()" (click)="toggleHomeMenu()">⌂</button><button type="button" aria-label="Search club">⌕</button></div>
         @if (homeMenuOpen()) {
           <div class="hall-home-menu" role="menu" aria-label="Home actions">
-            <button type="button" role="menuitem" title="Preview only: the live flow is POST /clubs" (click)="openCreateClub()"><span aria-hidden="true">♜</span>Preview: Create A Club</button>
-            <button type="button" role="menuitem" title="Preview only: friend table flow is not live yet" (click)="showFriendTableNotice()"><span aria-hidden="true">♧</span>Preview: Friend Table</button>
+            <button type="button" role="menuitem" title="Creates a club in this browser only; live club provisioning is unavailable" (click)="openCreateClub()"><span aria-hidden="true">♜</span>Create A Club</button>
+            <button type="button" role="menuitem" title="Set up a table with a friend by player ID or username" (click)="openFriendTableFinder()"><span aria-hidden="true">♧</span>Friend Table</button>
+            <button type="button" role="menuitem" title="Open your saved tables" (click)="openMyTables()"><span aria-hidden="true">▤</span>My Table</button>
           </div>
         }
         <div class="club-sign"><span>{{ homeClubCards[clubCardIndex()].kind === 'global' ? 'GLOBAL PLAY' : 'YOUR CLUBS' }}</span><strong>COWBOYS</strong><b>♢ 8 ♢</b></div>
@@ -40,7 +41,7 @@
       </div>
 
       <div class="home-action-tiles">
-        <button class="home-play-tile lobby-tile" type="button" (click)="enterLobby()">
+        <button class="home-play-tile lobby-tile" type="button" (click)="openClubCard(homeClubCards[clubCardIndex()])">
           <span class="tile-art playing-art"><i>A♠</i><i>A♥</i><b>♠</b></span><strong>LOBBY</strong><small>Cash games</small>
         </button>
         <button class="home-play-tile tournament-tile" type="button" disabled title="Tournament APIs are not available">
@@ -64,6 +65,27 @@
       }
       <button class="view-roles-button" type="button" aria-label="View roles" title="View roles" (click)="openRoleGuide(); controlsOpen.set(false)"><span>♧</span>ROLES</button>
     </nav>
+  } @else if (screen() === 'my-tables') {
+    <header class="lobby-topbar my-tables-topbar">
+      <button class="lobby-back" type="button" (click)="goHome()" aria-label="Back to clubhouse">‹</button>
+      <h1>My Table</h1>
+    </header>
+    <main class="lobby-screen my-tables-screen">
+      <p class="my-tables-note">Your saved local tables on this device.</p>
+      <div class="table-list">
+        @for (saved of myTables; track saved.clubId + ':' + saved.table.id) {
+          <article class="lobby-table-card my-table-card">
+            <div class="table-card-top"><span class="game-badge">{{ saved.table.game }}</span><span class="table-state">{{ saved.table.status }}</span></div>
+            <h3>{{ saved.table.name }}</h3>
+            <span class="my-table-club">{{ saved.clubName }}@if (saved.friendIdentifier) { · {{ saved.friendIdentifier }} }</span>
+            <div class="table-card-stats"><span><small>BLINDS</small><b>{{ saved.table.stakes }}</b></span><span><small>BUY-IN</small><b>{{ saved.table.buyIn }}</b></span><span><small>SEATS</small><b>{{ saved.table.players }}</b></span></div>
+            <button type="button" class="my-table-open" (click)="openSavedTable(saved)">Open table <span>↗</span></button>
+          </article>
+        } @empty {
+          <div class="lobby-empty-state"><p class="union-empty-note">No saved tables yet. Create a club or friend table to get started.</p></div>
+        }
+      </div>
+    </main>
   } @else if (screen() === 'shop') {
     <app-shop (close)="closeShop()" />
   } @else if (screen() === 'lobby') {
@@ -600,6 +622,22 @@
           <label><span>Notice</span><textarea name="clubNotice" maxlength="300" [value]="clubNoticeDraft()" (input)="clubNoticeDraft.set($any($event.target).value)" placeholder="Welcome message"></textarea></label>
           <button class="club-profile-save" type="submit">Save</button>
         </form>
+      </section>
+    </div>
+  }
+  @if (friendTableOpen()) {
+    <div class="club-profile-backdrop" (click)="closeFriendTableFinder()">
+      <section class="club-profile-dialog friend-table-dialog" role="dialog" aria-modal="true" aria-labelledby="friend-table-title" (click)="$event.stopPropagation()">
+        <header class="club-profile-header">
+          <h2 id="friend-table-title">Find a Friend</h2>
+          <button type="button" aria-label="Close friend table" (click)="closeFriendTableFinder()">×</button>
+        </header>
+        <p class="friend-table-note">Enter a player ID or username. Friend lookup and invitations are not connected yet; this sets up a local table only.</p>
+        <form class="club-profile-form" (ngSubmit)="continueFriendTable()">
+          <label><span>Player ID or username</span><input name="friendIdentifier" required maxlength="80" [value]="friendIdentifier()" (input)="friendIdentifier.set($any($event.target).value)" placeholder="Player ID or username"></label>
+          <button class="club-profile-save" type="submit">Continue</button>
+        </form>
+        @if (notice()) { <p class="friend-table-note" role="status">{{ notice() }}</p> }
       </section>
     </div>
   }

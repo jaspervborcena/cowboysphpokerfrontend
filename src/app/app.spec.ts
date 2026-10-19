@@ -174,19 +174,81 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.policy-status-panel')).toBeNull();
   });
 
-  it('blocks the local preview club flow and shows a demo-only notice instead', () => {
-    const app = TestBed.createComponent(App).componentInstance;
+  it('creates a local preview club without granting backend permissions', () => {
+    localStorage.removeItem('cowboys-local-clubs');
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
     const session = TestBed.inject(UserSessionStore);
     session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
+    fixture.detectChanges();
 
     app.openCreateClub();
+    fixture.detectChanges();
+    expect(app.clubProfileOpen()).toBeTrue();
+    expect(fixture.nativeElement.querySelector('.club-profile-dialog')).not.toBeNull();
 
-    expect(app.clubProfileOpen()).toBeFalse();
-    expect(app.homeClubCards.some((club) => club.name === 'Player Preview Club' && club.id.startsWith('local-club-'))).toBeFalse();
+    app.clubNameDraft.set('Player Preview Club');
+    app.saveClubProfile();
+
+    expect(app.homeClubCards.some((club) => club.name === 'Player Preview Club' && club.id.startsWith('local-club-'))).toBeTrue();
+    expect(app.screen()).toBe('lobby');
+    expect(app.activeClubName).toBe('Player Preview Club');
+    expect(app.activeClubRole).toBe('OWNER');
     expect(session.role()).toBe('PLAYER');
     expect(session.canManageClub()).toBeFalse();
-    expect(app.notice()).toContain('Preview only');
+    expect(app.notice()).toContain('Server-side club creation is not available');
     localStorage.removeItem('cowboys-local-clubs');
+  });
+
+  it('creates a friend table from an identifier and restores it in My Table', () => {
+    localStorage.removeItem('cowboys-local-clubs');
+    localStorage.removeItem('cowboys-local-tables');
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    TestBed.inject(UserSessionStore).setVerifiedMember('friend-host', 'Friend Host', 'PLAYER', 'firebase-token');
+    fixture.detectChanges();
+
+    app.openFriendTableFinder();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.friend-table-dialog')).not.toBeNull();
+    app.friendIdentifier.set('friend123');
+    app.continueFriendTable();
+    fixture.detectChanges();
+    expect(app.screen()).toBe('lobby');
+    expect(app.activeClubName).toBe('Friends Table');
+    expect(app.tableCreationStep()).toBe('games');
+    expect(fixture.nativeElement.querySelector('.game-picker')).not.toBeNull();
+    expect(app.notice()).toContain('does not verify or invite that player');
+
+    app.chooseClubGame('no_limit_texas_holdem');
+    app.tableDraftName.set('Friday Friends');
+    app.createClubTableFromWizard();
+
+    expect(app.lobbyTables.length).toBe(1);
+    expect(app.lobbyTables[0].name).toBe('Friday Friends');
+    expect(app.lobbyTables[0].localOnly).toBeTrue();
+    expect(app.lobbyTables[0].friendIdentifier).toBe('friend123');
+    expect(app.notice()).toContain('Local No-Limit Texas Hold’em table created');
+    expect(app.notice()).toContain('Server gameplay is not connected');
+
+    fixture.destroy();
+    const reopenedFixture = TestBed.createComponent(App);
+    const reopenedApp = reopenedFixture.componentInstance;
+    reopenedFixture.detectChanges();
+    expect(reopenedApp.myTables.length).toBe(1);
+    expect(reopenedApp.myTables[0].table.name).toBe('Friday Friends');
+    expect(reopenedApp.myTables[0].friendIdentifier).toBe('friend123');
+    reopenedApp.openMyTables();
+    reopenedFixture.detectChanges();
+    expect(reopenedFixture.nativeElement.querySelector('.my-table-card h3')?.textContent).toContain('Friday Friends');
+    reopenedApp.openSavedTable(reopenedApp.myTables[0]);
+    reopenedFixture.detectChanges();
+    expect(reopenedApp.screen()).toBe('table');
+    expect(reopenedApp.localPreviewTable()).toBeTrue();
+
+    reopenedFixture.destroy();
+    localStorage.removeItem('cowboys-local-clubs');
+    localStorage.removeItem('cowboys-local-tables');
   });
 
   it('normalizes phone sign-in and exchanges the backend token with Firebase', async () => {
@@ -602,10 +664,13 @@ describe('App', () => {
 
   it('should navigate from clubhouse to the lobby', () => {
     const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('.lobby-tile') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.lobby-screen')).not.toBeNull();
+    expect(app.activeClubName).toBe('Cowboys Global Room');
+    expect(app.activeClubRole).toBe('PREVIEW');
   });
 
   it('should show Shop and Career below the landing page lobby tile', () => {
@@ -842,6 +907,7 @@ describe('App', () => {
     const app = fixture.componentInstance;
     const session = TestBed.inject(UserSessionStore);
     fixture.detectChanges();
+    expect(app.homeClubCards.map((card) => card.id)).toEqual(['global-room']);
     app.gameCatalog.set({ active_game_id: '', games: [] });
     app.gameCatalogLoaded.set(true);
     session.setVerifiedMember('template-creator', 'Template Creator', 'OWNER', 'firebase-token');
@@ -849,6 +915,7 @@ describe('App', () => {
     app.saveClubProfile();
 
     const club = app.homeClubCards.find((card) => card.name === 'Micro Room')!;
+    expect(app.homeClubCards.map((card) => card.id)).toEqual(['global-room', club.id]);
     app.openClubCard(club);
     app.openClubTableWizard();
     expect(app.clubGameOptions.map((game) => game.id)).toEqual(['no_limit_texas_holdem']);
@@ -885,15 +952,19 @@ describe('App', () => {
   });
 
   it('should wrap the club carousel in both directions', () => {
-    const app = TestBed.createComponent(App).componentInstance;
+    localStorage.removeItem('cowboys-local-clubs');
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
 
+    expect(app.homeClubCards.map((club) => club.id)).toEqual(['global-room']);
     app.moveClubSelection(-1);
-    expect(app.clubCardIndex()).toBe(2);
+    expect(app.clubCardIndex()).toBe(0);
     app.moveClubSelection(1);
     expect(app.clubCardIndex()).toBe(0);
     app.selectClubCard(2);
-    app.moveClubSelection(1);
     expect(app.clubCardIndex()).toBe(0);
+    localStorage.removeItem('cowboys-local-clubs');
   });
 
   it('should show the configured member wallet amount for Cowboys Global Room only', async () => {
@@ -916,23 +987,6 @@ describe('App', () => {
     }));
     session.setVerifiedMember('club-owner', 'Club Owner', 'OWNER', 'firebase-token');
     fixture.detectChanges();
-
-    const previewClub = app.homeClubCards.find((club) => club.id === 'cebu-preview')!;
-    app.openClubCard(previewClub);
-    fixture.detectChanges();
-
-    expect(app.screen()).toBe('lobby');
-    expect(app.activeClubName).toBe('Cebu Night Owls');
-    expect(app.activeClubRole).toBe('PREVIEW');
-    expect(app.lobbyTables).toEqual([]);
-    expect((fixture.nativeElement.querySelector('.create-table-card') as HTMLButtonElement).disabled).toBeFalse();
-    expect((fixture.nativeElement.querySelector('.lobby-wallet') as HTMLButtonElement).disabled).toBeTrue();
-    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).not.toContain('GLOBAL PLAYMONEY');
-    expect(app.notice()).toContain('preview room');
-
-    app.openPrivateTable();
-    expect(app.screen()).toBe('lobby');
-    expect(app.notice()).toContain('not connected');
 
     const globalRoom = app.homeClubCards.find((club) => club.id === 'global-room')!;
     app.openClubCard(globalRoom);
@@ -958,7 +1012,7 @@ describe('App', () => {
     expect(app.notice()).toContain('preview room');
   });
 
-  it('keeps the home menu in demo-only mode instead of creating a live club', () => {
+  it('opens the local club profile form without creating a live club', () => {
     localStorage.removeItem('cowboys-local-clubs');
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
@@ -968,15 +1022,20 @@ describe('App', () => {
     (fixture.nativeElement.querySelector('[aria-label="Home"]') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="menu"]')).not.toBeNull();
+    const menuItems = fixture.nativeElement.querySelectorAll('[role="menuitem"]') as NodeListOf<HTMLButtonElement>;
+    expect(menuItems[0].textContent).toContain('Create A Club');
+    expect(menuItems[0].textContent).not.toContain('Preview');
+    expect(menuItems[1].textContent).toContain('Friend Table');
+    expect(menuItems[1].textContent).not.toContain('Preview');
+    expect(menuItems[2].textContent).toContain('My Table');
 
-    (fixture.nativeElement.querySelector('[role="menuitem"]') as HTMLButtonElement).click();
+    menuItems[0].click();
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelector('#club-profile-title')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.club-profile-dialog')).toBeNull();
-    expect(app.notice()).toContain('Preview only');
-    expect(app.notice()).toContain('POST /clubs');
+    expect(fixture.nativeElement.querySelector('#club-profile-title')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.club-profile-dialog')).not.toBeNull();
     expect(app.homeClubCards.some((club) => club.id.startsWith('local-club-'))).toBeFalse();
+    app.closeClubProfile();
     localStorage.removeItem('cowboys-local-clubs');
   });
 

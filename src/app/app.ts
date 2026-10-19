@@ -74,6 +74,7 @@ interface LobbyTable {
   originClubId?: string;
   seatedCount?: number;
   localOnly?: boolean;
+  friendIdentifier?: string;
   tableSize?: number;
   buyInMin?: number;
   buyInMax?: number;
@@ -92,6 +93,14 @@ interface HomeClubCard {
   creatorId?: string;
   notice?: string;
   localTreasuryBalance?: number;
+  friendIdentifier?: string;
+}
+
+interface SavedLocalTable {
+  clubId: string;
+  clubName: string;
+  friendIdentifier?: string;
+  table: LobbyTable;
 }
 
 const LOCAL_CLUB_STARTING_TREASURY = 10_000;
@@ -116,7 +125,7 @@ const localClubGameCatalog: GameCatalogResponse = {
   templateUrl: './table.html'
 })
 export class App implements OnInit, OnDestroy {
-  screen = signal<'home' | 'lobby' | 'table' | 'replay' | 'shop'>('home');
+  screen = signal<'home' | 'lobby' | 'table' | 'replay' | 'shop' | 'my-tables'>('home');
   lobbyGame = signal('ALL');
   lobbyScope = signal<'club' | 'union'>('club');
   tableLayout = signal<'grid' | 'list'>('grid');
@@ -271,15 +280,15 @@ export class App implements OnInit, OnDestroy {
     { role: 'PLAYER', title: 'Player', rights: 'Join tables, request a buy-in, play hands, and view personal hand history. Cannot set a chip balance or see opponents’ private cards.' }
   ];
   homeClubCards: HomeClubCard[] = [
-    { id: 'global-room', name: 'Cowboys Global Room', titleTop: 'COWBOYS', titleBottom: 'GLOBAL', subtitle: 'GLOBAL PLAY ROOM', status: 'MOCK PREVIEW', kind: 'global' },
-    { id: 'demo', name: 'Card Games Manila', titleTop: 'CARD GAMES', titleBottom: 'MANILA', subtitle: 'PRIVATE POKER CLUB', status: 'MOCK PREVIEW', kind: 'club' },
-    { id: 'cebu-preview', name: 'Cebu Night Owls', titleTop: 'CEBU NIGHT', titleBottom: 'OWLS', subtitle: 'MEMBER CLUB', status: 'MOCK PREVIEW', kind: 'club' }
+    { id: 'global-room', name: 'Cowboys Global Room', titleTop: 'COWBOYS', titleBottom: 'GLOBAL', subtitle: 'GLOBAL PLAY ROOM', status: 'MOCK PREVIEW', kind: 'global' }
   ];
   activeClubCardId = signal<string | null>(null);
   private readonly localClubTables = new Map<string, LobbyTable[]>();
   clubCardIndex = signal(0);
   homeMenuOpen = signal(false);
   clubProfileOpen = signal(false);
+  friendTableOpen = signal(false);
+  friendIdentifier = signal('');
   clubNameDraft = signal('');
   clubNoticeDraft = signal('');
   selectedClubLogo = signal('lions');
@@ -362,6 +371,7 @@ export class App implements OnInit, OnDestroy {
   constructor(private readonly http: HttpClient, session: UserSessionStore) {
     this.session = session;
     this.homeClubCards = [...this.homeClubCards, ...this.readLocalClubs()];
+    this.restoreLocalTables();
   }
 
   ngOnInit(): void {
@@ -419,7 +429,21 @@ export class App implements OnInit, OnDestroy {
   }
 
   get activeClubName(): string {
-    return this.currentClubCard?.name ?? 'Card Games Manila';
+    return this.currentClubCard?.name ?? 'Cowboys Global Room';
+  }
+
+  get myTables(): SavedLocalTable[] {
+    const ownerId = this.session.firebaseUid() || this.session.memberId();
+    if (!ownerId) return [];
+
+    return this.homeClubCards
+      .filter((club) => club.creatorId === ownerId)
+      .flatMap((club) => (this.localClubTables.get(club.id) ?? []).map((table) => ({
+        clubId: club.id,
+        clubName: club.name,
+        friendIdentifier: table.friendIdentifier ?? club.friendIdentifier,
+        table
+      })));
   }
 
   get activeClubDisplayId(): string {
@@ -655,11 +679,11 @@ export class App implements OnInit, OnDestroy {
 
   openCreateClub(): void {
     this.homeMenuOpen.set(false);
-    this.clubProfileOpen.set(false);
+    this.clubProfileOpen.set(true);
     this.clubNameDraft.set('');
     this.clubNoticeDraft.set('');
     this.selectedClubLogo.set('lions');
-    this.notice.set('Preview only: club creation is not live yet. The backend self-service flow is POST /clubs and the local preview flow is disabled.');
+    this.notice.set('');
   }
 
   saveClubProfile(): void {
@@ -673,7 +697,7 @@ export class App implements OnInit, OnDestroy {
     const name = this.clubNameDraft().trim();
     if (!name) return;
     const logo = this.currentClubLogo;
-    this.homeClubCards = [...this.homeClubCards, {
+    const club: HomeClubCard = {
       id: `local-club-${Date.now()}`,
       name,
       titleTop: name,
@@ -686,10 +710,13 @@ export class App implements OnInit, OnDestroy {
       creatorId,
       localTreasuryBalance: LOCAL_CLUB_STARTING_TREASURY,
       notice: this.clubNoticeDraft().trim()
-    }];
+    };
+    this.homeClubCards = [...this.homeClubCards, club];
     this.persistLocalClubs();
+    this.activeClubCardId.set(club.id);
     this.clubCardIndex.set(this.homeClubCards.length - 1);
     this.clubProfileOpen.set(false);
+    this.enterLobby();
     this.notice.set('Local preview club created in this browser. Server-side club creation is not available.');
   }
 
@@ -697,9 +724,60 @@ export class App implements OnInit, OnDestroy {
     this.clubProfileOpen.set(false);
   }
 
-  showFriendTableNotice(): void {
+  openFriendTableFinder(): void {
     this.homeMenuOpen.set(false);
-    this.notice.set('Friend tables are not connected yet.');
+    this.friendIdentifier.set('');
+    this.friendTableOpen.set(true);
+    this.notice.set('');
+  }
+
+  continueFriendTable(): void {
+    const creatorId = this.session.firebaseUid() || this.session.memberId();
+    if (!creatorId) {
+      this.notice.set('Sign in before setting up a friend table.');
+      return;
+    }
+    const friendIdentifier = this.friendIdentifier().trim();
+    if (!friendIdentifier) {
+      this.notice.set('Enter your friend’s player ID or username.');
+      return;
+    }
+
+    const friendClub = this.homeClubCards.find((club) =>
+      club.creatorId === creatorId
+      && club.friendIdentifier?.toLowerCase() === friendIdentifier.toLowerCase())
+      ?? this.createLocalFriendClub(creatorId, friendIdentifier);
+    this.friendTableOpen.set(false);
+    this.activeClubCardId.set(friendClub.id);
+    this.clubCardIndex.set(this.homeClubCards.findIndex((club) => club.id === friendClub.id));
+    this.lobbyScope.set('club');
+    this.enterLobby();
+    this.tableDraftName.set(`Friends with ${friendIdentifier}`);
+    this.openClubTableWizard();
+    this.notice.set('Friend search is not connected. This local table uses the identifier you entered; it does not verify or invite that player.');
+  }
+
+  closeFriendTableFinder(): void {
+    this.friendTableOpen.set(false);
+  }
+
+  private createLocalFriendClub(creatorId: string, friendIdentifier: string): HomeClubCard {
+    const club: HomeClubCard = {
+      id: `local-friend-${Date.now()}`,
+      name: 'Friends Table',
+      titleTop: 'FRIENDS',
+      titleBottom: 'TABLE',
+      subtitle: friendIdentifier,
+      status: 'LOCAL PREVIEW',
+      kind: 'club',
+      logoMark: '♧',
+      creatorId,
+      friendIdentifier,
+      localTreasuryBalance: LOCAL_CLUB_STARTING_TREASURY
+    };
+    this.homeClubCards = [...this.homeClubCards, club];
+    this.persistLocalClubs();
+    return club;
   }
 
   private async finalizeSignedInUser(label: string): Promise<void> {
@@ -1288,10 +1366,12 @@ export class App implements OnInit, OnDestroy {
       players: `0 / ${this.tableSize()}`,
       status: 'OPEN',
       seatedCount: 0,
-      localOnly: true
+      localOnly: true,
+      friendIdentifier: this.currentClubCard?.friendIdentifier
     };
     const tables = this.localClubTables.get(this.activeClubDisplayId) ?? [];
     this.localClubTables.set(this.activeClubDisplayId, [...tables, table]);
+    this.persistLocalTables();
     this.lobbyTables = [...tables, table];
     this.tableCreationStep.set(null);
     this.notice.set(`Local ${this.selectedGameDisplayName} table created with ${this.smallBlind}/${this.bigBlind} blinds. Server gameplay is not connected.`);
@@ -1306,6 +1386,27 @@ export class App implements OnInit, OnDestroy {
     return tables.filter((table) => selectedGame
       ? table.gameId === selectedGame.game_id || (!table.gameId && table.game.toUpperCase() === selectedGame.display_name.toUpperCase())
       : table.game.toUpperCase() === this.lobbyGame().toUpperCase());
+  }
+
+  openMyTables(): void {
+    this.homeMenuOpen.set(false);
+    this.screen.set('my-tables');
+  }
+
+  openSavedTable(savedTable: SavedLocalTable): void {
+    const ownerId = this.session.firebaseUid() || this.session.memberId();
+    const clubIndex = this.homeClubCards.findIndex((club) =>
+      club.id === savedTable.clubId && club.creatorId === ownerId);
+    if (clubIndex < 0) {
+      this.notice.set('This saved table is not available for the current account.');
+      return;
+    }
+
+    this.activeClubCardId.set(savedTable.clubId);
+    this.clubCardIndex.set(clubIndex);
+    this.lobbyScope.set('club');
+    this.enterLobby();
+    this.openTable(savedTable.table.id);
   }
 
   openReplay(): void {
@@ -1619,6 +1720,7 @@ export class App implements OnInit, OnDestroy {
         ? { ...table, seatedCount: players.length, players: `${players.length} / ${this.tableSize()}` }
         : table);
       this.localClubTables.set(this.activeClubDisplayId, this.lobbyTables);
+      this.persistLocalTables();
       this.seatConfirmationOpen.set(false);
       this.notice.set('Joined the local preview table. No wallet transaction or live hand was started.');
       return;
@@ -2210,6 +2312,42 @@ export class App implements OnInit, OnDestroy {
       localStorage.setItem('cowboys-local-clubs', JSON.stringify(ownedClubs));
     } catch {
       this.notice.set('This club profile is available until the page is closed.');
+    }
+  }
+
+  private restoreLocalTables(): void {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem('cowboys-local-tables') ?? '[]');
+      if (!Array.isArray(saved)) return;
+      for (const entry of saved) {
+        if (typeof entry !== 'object' || entry === null || !('clubId' in entry)
+          || typeof entry.clubId !== 'string' || !('tables' in entry) || !Array.isArray(entry.tables)) continue;
+        const tables = (entry.tables as unknown[]).filter((table: unknown): table is LobbyTable =>
+          typeof table === 'object' && table !== null
+          && 'id' in table && typeof table.id === 'string'
+          && 'name' in table && typeof table.name === 'string'
+          && 'game' in table && typeof table.game === 'string'
+          && 'stakes' in table && typeof table.stakes === 'string'
+          && 'buyIn' in table && typeof table.buyIn === 'string'
+          && 'players' in table && typeof table.players === 'string'
+          && 'status' in table && typeof table.status === 'string'
+          && 'localOnly' in table && table.localOnly === true);
+        this.localClubTables.set(entry.clubId, tables);
+      }
+    } catch {
+      this.localClubTables.clear();
+    }
+  }
+
+  private persistLocalTables(): void {
+    try {
+      const localClubIds = new Set(this.homeClubCards.filter((club) => !!club.creatorId).map((club) => club.id));
+      const savedTables = [...this.localClubTables.entries()]
+        .filter(([clubId]) => localClubIds.has(clubId))
+        .map(([clubId, tables]) => ({ clubId, tables }));
+      localStorage.setItem('cowboys-local-tables', JSON.stringify(savedTables));
+    } catch {
+      this.notice.set('Tables are saved only until the page is closed because browser storage is unavailable.');
     }
   }
 
