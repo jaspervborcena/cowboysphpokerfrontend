@@ -46,27 +46,8 @@
         <button class="home-play-tile tournament-tile" type="button" disabled title="Tournament APIs are not available">
           <span class="tile-art trophy-art">♜</span><strong>TOURNAMENT</strong><small>Not available</small>
         </button>
-      </div>
-
-      <div class="role-destination">
-        @if (session.canManageClub()) {
-          <span class="role-stamp">OWNER DESK <b>CLUB ADMIN</b></span>
-        } @else if (session.canManageTables()) {
-          <span class="role-stamp">MANAGER DESK <b>TABLE OPERATIONS</b></span>
-        } @else if (session.canUseAgentDesk()) {
-          <span class="role-stamp">AGENT DESK <b>DOWNLINE &amp; CHIPS</b></span>
-        } @else {
-          <span class="role-stamp">{{ session.membershipStatus() === 'not-a-member' ? 'GLOBAL ACCOUNT' : 'CLUB MEMBER' }} <b>{{ session.membershipStatus() === 'not-a-member' ? 'ACCOUNT ACTIVE' : 'PLAYER ACCESS' }}</b></span>
-        }
-        <button class="view-roles-button" type="button" (click)="openRoleGuide()">View roles <span>↗</span></button>
-        @if (session.role() === 'AGENT' || session.role() === 'MANAGER' || session.role() === 'OWNER') {
-          <button class="role-cashier-button" type="button" (click)="openStaffDesk()">Staff desk <span>↗</span></button>
-        }
-        @if (session.canManageTables()) {
-          <button type="button" (click)="enterLobby()">Manage tables <span>↗</span></button>
-        } @else {
-          <span class="role-status">{{ session.membershipStatus() === 'loading' ? 'VERIFYING CLUB ACCESS' : session.membershipStatus() === 'not-a-member' ? 'GLOBAL ACCOUNT · ACCEPT A CLUB INVITATION' : session.membershipStatus() === 'unavailable' ? 'CLUB ACCESS UNAVAILABLE' : 'PLAYER ACCESS' }}</span>
-        }
+        <button class="home-utility-tile" type="button" (click)="openShop()"><span aria-hidden="true">▣</span>SHOP</button>
+        <button class="home-utility-tile" type="button" (click)="openCareer()"><span aria-hidden="true">♙</span>CAREER</button>
       </div>
 
     </main>
@@ -74,20 +55,24 @@
       <button class="member-nav-scrim drawer-scrim" type="button" aria-label="Close member navigation" (click)="controlsOpen.set(false)"></button>
     }
     <nav id="member-navigation" class="member-nav" [class.open]="controlsOpen()" [attr.aria-hidden]="controlsOpen() ? null : 'true'" [attr.inert]="controlsOpen() ? null : ''" aria-label="Member navigation">
+      <button type="button" (click)="openShop()"><span>▣</span>SHOP</button>
       @if (session.canUseAgentDesk() || session.canManageTables() || session.canManageClub()) {
-        <button type="button" (click)="notice.set('Shop is not available in this backend.'); controlsOpen.set(false)"><span>▣</span>SHOP</button>
+        <button class="role-cashier-button" type="button" (click)="openStaffDesk(); controlsOpen.set(false)"><span>♙</span>Staff desk</button>
         <button type="button" (click)="notice.set('Messages are not available in this backend.'); controlsOpen.set(false)"><span>✉</span>MESSAGE</button>
         <button type="button" disabled title="Tournament APIs are not available"><span>♜</span>MTT</button>
         <button type="button" (click)="notice.set('Member career is not available in this backend.'); controlsOpen.set(false)"><span>♙</span>CAREER</button>
       }
-      <button type="button" (click)="openRoleGuide(); controlsOpen.set(false)"><span>♧</span>ROLES</button>
+      <button class="view-roles-button" type="button" aria-label="View roles" title="View roles" (click)="openRoleGuide(); controlsOpen.set(false)"><span>♧</span>ROLES</button>
     </nav>
+  } @else if (screen() === 'shop') {
+    <app-shop (close)="closeShop()" />
   } @else if (screen() === 'lobby') {
     <header class="lobby-topbar">
       <button class="lobby-back" type="button" (click)="goHome()" aria-label="Back to clubhouse">‹</button>
       <div class="lobby-club-mark">♛</div>
       <div class="lobby-club-name"><strong>{{ activeClubName }}</strong><span>{{ activeClubRole === 'OWNER' && activeClubDisplayId.startsWith('local-club-') ? 'LOCAL CLUB' : 'ID: ' + activeClubDisplayId }} · {{ activeClubRole }}</span></div>
       <button class="lobby-wallet" type="button" [attr.aria-label]="(isActiveLocalClubOwner ? 'Local preview treasury for ' : 'Club wallet for ') + activeClubName + ': ' + (lobbyWalletBalance ?? 'unavailable') + (isActiveLocalClubOwner ? ' preview chips' : ' club chips') + (isActiveGlobalClub ? '. Global playmoney: ' + (globalWalletBalance() ?? 'unavailable') : '')" [disabled]="!canOpenClubWallet" [title]="canOpenClubWallet ? 'Open club wallet for ' + activeClubName : 'Wallet is unavailable in this preview room'" (click)="openWallet('club')"><span aria-hidden="true">♢</span><span class="lobby-wallet-balance"><span><small>{{ activeClubName }} · {{ lobbyWalletBalanceLabel }}</small><strong>{{ walletBalanceLoading() ? '…' : walletBalanceError() ? 'Unavailable' : lobbyWalletBalance !== null ? (lobbyWalletBalance | number) : '—' }}</strong></span>@if (isActiveGlobalClub) {<span><small>GLOBAL PLAYMONEY</small><strong>{{ globalWalletLoading() ? '…' : globalWalletError() ? 'Unavailable' : globalWalletBalance() !== null ? (globalWalletBalance() | number) : '—' }}</strong></span>}</span></button>
+      <button class="lobby-shop" type="button" aria-label="Open shop" title="Open shop" (click)="openShop()"><span aria-hidden="true">▣</span><span class="lobby-shop-label">SHOP</span></button>
       <button class="lobby-search" type="button" aria-label="Search tables">⌕</button>
     </header>
     <main class="lobby-screen">
@@ -186,6 +171,8 @@
     }
     @if (lobbyQuickMenuOpen()) {
       <nav class="lobby-shortcut-bar" [class.above-staff-desk]="staffDeskOpen()" aria-label="Lobby shortcuts">
+        <button type="button" (click)="openShop()"><span>▣</span><small>Shop</small></button>
+        <button type="button" (click)="openCareer()"><span>♙</span><small>Career</small></button>
         <button type="button" (click)="openLobbyMessages()"><span>✉</span><small>Message</small></button>
         <button type="button" (click)="openLobbyStaffDesk('members')"><span>♙</span><small>Member</small></button>
         <button type="button" (click)="openLobbyStaffDesk('cashier')"><span>♙</span><small>Cashier</small></button>

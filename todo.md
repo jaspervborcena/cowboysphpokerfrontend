@@ -1,5 +1,11 @@
 # Current codebase review
 
+## Current runtime status (2026-10-19)
+
+- Angular dev server was verified at http://localhost:53904 because another local app was using port 4200.
+- Browser requests from this origin to the configured API's `/games` and `/health` endpoints are blocked by CORS because the responses omit `Access-Control-Allow-Origin`; this does not establish whether the endpoints themselves return 404.
+- The app shell and landing page render, and the frontend falls back to preview behavior when the game catalog cannot be loaded.
+
 ## Executive summary
 
 The frontend is now a substantial Angular application with the main member experience wired up: Firebase authentication, role resolution, protected club membership flow, lobby and table UI, live table websocket handling, hand replay, wallet dashboard, and mock operational screens. The implementation is concentrated in [src/app/app.ts](src/app/app.ts), [src/app/core/club-api.service.ts](src/app/core/club-api.service.ts), [src/app/core/firebase-auth.service.ts](src/app/core/firebase-auth.service.ts), and [src/app/core/user-session.store.ts](src/app/core/user-session.store.ts).
@@ -24,6 +30,7 @@ This matters because the repo still contains preview-only club creation logic in
 - Implemented table creation defaults and game selection rules with server-supported `game_id` values and `table_size`-based constraints.
 - Added live-table websocket protocol handling for authentication, reconnect, action correlation, pre-action values, and server snapshot replacement.
 - Added hand replay support and wallet operations with server-authoritative balance checks and idempotent financial requests.
+- Restored the club card to its original height, moved the Lobby/Tournament and Shop/Career rows lower while keeping them visible, and removed redundant membership/status text from the landing page. Focused app tests pass (62/62).
 - Included mock preview flows for the Staff Desk cashier and local club preview tables without claiming live backend support.
 
 ## What remains to be done
@@ -65,6 +72,15 @@ The project is no longer a blank frontend shell, but it still depends on backend
 
 Close the frontend/backend contract gaps and complete a real authenticated member-to-table flow. Treat UI permission checks as presentation only; backend authorization remains authoritative.
 
+### Immediate fix list
+
+- [ ] Confirm the actual deployed wallet/game API base for this environment and update `public/app-config.json` if the remote URL is incorrect.
+- [ ] Configure backend CORS to allow the active frontend origin; current requests from `http://localhost:53904` to `/games` and `/health` are blocked before a response can be inspected.
+- [ ] After CORS is fixed, verify the backend exposes `GET /games` at the configured endpoint and returns the expected `active_game_id`/`games` contract.
+- [ ] Decide whether the app should keep the current mock preview fallback or suppress noisy catalog errors when the endpoint is unavailable.
+- [ ] Re-test the home lobby after the backend endpoint is corrected to confirm live data loads without mock fallback.
+
+
 ## Implemented in the frontend
 
 - Firebase email/password and Google sign-in, email account creation, Firebase token session, and club membership lookup for server-assigned roles.
@@ -75,6 +91,7 @@ Close the frontend/backend contract gaps and complete a real authenticated membe
 - API base URL, club ID, and optional Firebase web config are loaded from `/app-config.json` before app bootstrap, with Firebase defaults in `src/environments/environment.ts`.
 - Club and union table list requests, table create/seat/start/delete requests, `buy_in_id` generation, authenticated local/union WebSockets, table actions, and replay API calls.
 - Role-aware menus and baseline `PLAYER` permissions while membership verification is pending.
+- The landing page shows Shop and Career below the Lobby/Tournament cards, preserves the original club-card height, and omits redundant membership/status labels; Shop opens the preview storefront and Career shows its unavailable-backend notice.
 - Empty/error responses no longer preserve sample lobby rows; explicit empty states are shown for club and union table lists.
 - Mock club and Global Room cards open isolated preview lobbies without loading configured-club data; global games and invitation-backed club switching are not connected.
 - The home icon opens Create A Club and Friend Table actions. Created profiles persist in browser storage and reopen for their creator as a local OWNER room with local-only table previews; no backend club provisioning, table play, or friend-invite endpoint is wired.

@@ -10,6 +10,7 @@ import { TableActionPayload, TableSocketErrorPayload, TableWebSocketEnvelope } f
 import { AppRuntimeConfig } from './core/runtime-config';
 import { UserSessionStore } from './core/user-session.store';
 import { HandReplayContainerComponent } from './features/hand-replay/hand-replay-container.component';
+import { ShopComponent } from './features/shop/shop.component';
 import { WalletDashboardComponent } from './features/wallet-dashboard/wallet-dashboard.component';
 import { StaffDeskComponent, type StaffDeskSection } from './features/staff-desk/staff-desk.component';
 import { BlindEntryChoice } from './features/table/rules/table-rules.types';
@@ -111,11 +112,11 @@ const localClubGameCatalog: GameCatalogResponse = {
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, DecimalPipe, HandReplayContainerComponent, WalletDashboardComponent, StaffDeskComponent],
+  imports: [FormsModule, DecimalPipe, HandReplayContainerComponent, ShopComponent, WalletDashboardComponent, StaffDeskComponent],
   templateUrl: './table.html'
 })
 export class App implements OnInit, OnDestroy {
-  screen = signal<'home' | 'lobby' | 'table' | 'replay'>('home');
+  screen = signal<'home' | 'lobby' | 'table' | 'replay' | 'shop'>('home');
   lobbyGame = signal('ALL');
   lobbyScope = signal<'club' | 'union'>('club');
   tableLayout = signal<'grid' | 'list'>('grid');
@@ -612,6 +613,15 @@ export class App implements OnInit, OnDestroy {
     this.controlsOpen.update((open) => !open);
   }
 
+  openShop(): void {
+    this.controlsOpen.set(false);
+    this.screen.set('shop');
+  }
+
+  closeShop(): void {
+    this.screen.set('home');
+  }
+
   openStaffDesk(section?: StaffDeskSection): void {
     const localOwner = this.isActiveLocalClubOwner;
     const mockPreview = this.isActiveMockClubPreview || localOwner;
@@ -1105,6 +1115,11 @@ export class App implements OnInit, OnDestroy {
 
   openLobbyMessages(): void {
     this.openLobbyStaffDesk('messages');
+  }
+
+  openCareer(): void {
+    this.lobbyQuickMenuOpen.set(false);
+    this.notice.set('Member career is not available in this backend.');
   }
 
   openLobbyStaffDesk(section: StaffDeskSection): void {

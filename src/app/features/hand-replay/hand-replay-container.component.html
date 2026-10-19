@@ -14,11 +14,68 @@
       <button type="button" (click)="retry()">Retry</button>
     </section>
   } @else if (store.replayData(); as replay) {
-    <section class="replay-summary" aria-label="Hand result">
-      <div><span>POT</span><strong>{{ replay.pot_total | number }}</strong></div>
-      <div><span>BOARD</span><strong>{{ replay.final_board.length }} CARDS</strong></div>
-      <div><span>FRAMES</span><strong>{{ replay.total_frames }}</strong></div>
+    <section class="replay-content" [attr.aria-label]="activeTab() === 'summary' ? 'Hand summary' : 'Hand details'">
+      @if (activeTab() === 'summary') {
+        <section class="summary-view" aria-label="Hand result summary">
+          <div class="summary-facts">
+            <div><span>FINAL POT</span><strong>{{ replay.pot_total | number }}</strong></div>
+            <div><span>RESULT</span><strong>{{ replay.is_showdown ? 'Showdown' : 'No showdown' }}</strong></div>
+            <div><span>HAND</span><strong>{{ replay.hand_id }}</strong></div>
+          </div>
+          <section class="summary-board" aria-label="Final board">
+            <h2>Final board</h2>
+            <div class="summary-cards">
+              @for (card of replay.final_board; track $index) {
+                <span class="summary-card" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><i>{{ cardSuit(card) }}</i></span>
+              } @empty {
+                <span class="summary-empty">No community cards</span>
+              }
+            </div>
+          </section>
+          <section class="summary-players" aria-label="Player results">
+            <h2>Players</h2>
+            @for (player of finalPlayers; track player.user_id) {
+              <article class="summary-player" [class.summary-winner]="winnerAmount(player.user_id) !== null">
+                <div class="summary-player-identity">
+                  <span class="summary-seat">SEAT {{ player.seat + 1 }}</span>
+                  <strong>{{ player.username }}</strong>
+                </div>
+                <div class="summary-hole-cards" aria-label="Hole cards">
+                  @for (card of player.hole_cards; track $index) {
+                    @if (player.mucked || card === '??') {
+                      <span class="summary-card card-back" aria-label="Hidden card">?</span>
+                    } @else {
+                      <span class="summary-card" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><i>{{ cardSuit(card) }}</i></span>
+                    }
+                  }
+                </div>
+                <div class="summary-player-result">
+                  @if (winnerAmount(player.user_id); as amount) {
+                    <strong class="winner-amount">Won {{ amount | number }}</strong>
+                  } @else if (!player.in_hand) {
+                    <span class="result-muted">Folded</span>
+                  } @else {
+                    <span class="result-muted">No payout</span>
+                  }
+                  <span class="ending-stack">{{ player.stack | number }} chips</span>
+                </div>
+              </article>
+            } @empty {
+              <p class="summary-empty">Player results are unavailable for this hand.</p>
+            }
+          </section>
+        </section>
+      } @else {
+        <app-replay-action-log
+          [frames]="replay.frames"
+          [currentFrameIndex]="store.currentFrameIndex()"
+          (seek)="store.seekTo($event)" />
+      }
     </section>
+    <nav class="replay-tabs" role="tablist" aria-label="Replay view">
+      <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'summary'" [class.active]="activeTab() === 'summary'" (click)="setTab('summary')">Hand Summary</button>
+      <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'detail'" [class.active]="activeTab() === 'detail'" (click)="setTab('detail')">Hand Detail</button>
+    </nav>
     <app-replay-controls
       [currentFrameIndex]="store.currentFrameIndex()"
       [totalFrames]="replay.total_frames"
@@ -29,10 +86,5 @@
       (next)="store.nextFrame()"
       (seek)="store.seekTo($event)"
       (speedChange)="store.setPlaybackSpeed($event)" />
-    <app-replay-table-canvas [frame]="store.currentFrame()" />
-    <app-replay-action-log
-      [frames]="replay.frames"
-      [currentFrameIndex]="store.currentFrameIndex()"
-      (seek)="store.seekTo($event)" />
   }
 </main>

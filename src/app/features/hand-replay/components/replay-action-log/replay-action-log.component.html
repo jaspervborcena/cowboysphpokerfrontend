@@ -1,12 +1,33 @@
 <section class="replay-log" aria-label="Hand action history">
-  <header><span>ACTION</span><span>PLAYER</span><span>AMOUNT</span></header>
   <div class="replay-log-rows">
-    @for (frame of actionFrames; track frame.frame_index) {
-      <button type="button" class="replay-log-row" [class.selected]="currentFrameIndex() === frame.frame_index" (click)="seek.emit(frame.frame_index)">
-        <span class="action-name">{{ frame.last_action?.action }}</span>
-        <span class="action-user">{{ playerName(frame, frame.last_action!.user_id) }}</span>
-        <span class="action-amount">{{ frame.last_action?.amount ?? '—' }}</span>
-      </button>
+    @for (group of actionGroups; track group.label) {
+      <section class="street-group" [attr.aria-label]="group.label + ' actions'">
+        <header class="street-heading">
+          <strong>{{ group.label }}</strong>
+          <div class="street-board" aria-label="Board cards">
+            @for (card of group.board; track $index) {
+              <span class="detail-card" [class.red-card]="isRedCard(card)"><b>{{ cardRank(card) }}</b><i>{{ cardSuit(card) }}</i></span>
+            }
+          </div>
+          <span class="street-pot">Pot {{ group.pot | number }}</span>
+        </header>
+        @for (frame of group.frames; track frame.frame_index) {
+          @if (frame.last_action; as action) {
+            <button type="button" class="replay-action-row" [class.selected]="currentFrameIndex() === frame.frame_index" (click)="seek.emit(frame.frame_index)">
+              <span class="action-main">
+                @if (playerSeat(frame, action.user_id) !== null) { <span class="action-seat">S{{ playerSeat(frame, action.user_id)! + 1 }}</span> }
+                <strong class="action-user">{{ playerName(frame, action.user_id) }}</strong>
+                <span class="action-name">{{ action.action }}</span>
+                <b class="action-amount">{{ action.amount === null ? '—' : (action.amount | number) }}</b>
+              </span>
+              <span class="action-meta">
+                <time>{{ action.timestamp | date:'HH:mm:ss' }}</time>
+                @if (playerStack(frame, action.user_id) !== null) { <span>Stack {{ playerStack(frame, action.user_id)! | number }}</span> }
+              </span>
+            </button>
+          }
+        }
+      </section>
     } @empty {
       <p class="replay-log-empty">The hand has no recorded player actions.</p>
     }

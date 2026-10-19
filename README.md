@@ -2,6 +2,14 @@
 
 Angular 20 member client for the Cowboys PH poker experience. This workspace focuses on the clubhouse flow, role-based member UI, lobby browsing, and the live table experience in a portrait-first layout.
 
+## Runtime status (2026-10-19)
+
+The Angular client was verified on http://localhost:53904 because another local app was already using port 4200. The app shell and landing page load successfully.
+
+The live integration issue is currently CORS: requests from `http://localhost:53904` to the configured API's `/games` and `/health` endpoints are blocked because the response has no `Access-Control-Allow-Origin` header. The browser therefore cannot confirm whether `/games` itself returns a successful response or a 404. The frontend falls back to preview behavior, so the UI renders without live catalog or lobby data.
+
+Immediate follow-up: allow the active frontend origin in the backend's CORS configuration, then verify that `walletApiBase` or `gameServerBase` points to the intended API and that `GET /games` and `/health` meet their contracts.
+
 ## Current status
 
 The Angular client implements clubhouse, lobby, live-table, union-table, and hand-replay UI flows. It includes:
@@ -13,6 +21,7 @@ The Angular client implements clubhouse, lobby, live-table, union-table, and han
 - A least-privilege `PLAYER` state while membership is loading; elevated roles come from the backend membership response.
 - Configurable wallet API base URL, game-server base URL, club ID, and Firebase web config loaded before Angular starts. Legacy `apiBase` remains a fallback for both services.
 - A home-icon menu with Create A Club and Friend Table actions. A created profile is saved in browser storage, its creator can reopen the local room as OWNER, and enter its local table previews; local seating is creator-only and does not connect to server gameplay. Server-side club creation and friend-table invites are not connected.
+- The landing page keeps the club card at its original height and shows Lobby/Tournament tiles with Shop/Career directly below; redundant membership/status labels are omitted from this area. Career is currently an unavailable-backend notice, while Shop opens the preview storefront.
 - A consistent Club lobby action row for every role. Anyone can open the game picker; only verified Owners and Managers can submit creation. The picker is loaded from `GET /games` and offers only entries with `create_supported: true`. When the catalog is unavailable, creation is disabled instead of guessing supported variants.
 - Table creation defaults live in [src/app/data/table-creation-defaults.json](src/app/data/table-creation-defaults.json): NLH, 1/2 blinds, 50-1,000 buy-in, and 9 seats. Create requests include `game_id`, blinds, buy-in limits, and `table_size`; unsupported modes and advanced template settings are not offered for server-created tables.
 - Game behavior is separated into per-game rule files under [src/app/features/table/rules](src/app/features/table/rules). Hold’em Ring and PLO4 Ring currently share the buy-in confirmation, blind-entry choices, and 20-second timing policy; add another file and register it in `TableRulesService` to define another game/format.
@@ -98,7 +107,7 @@ The JSON also defines defaults for modes and advanced settings, but current crea
 
 The current navigation rule is intentional:
 
-- `PLAYER` only sees the `ROLES` item in the member nav
+- `PLAYER` sees `SHOP` and `ROLES` in the member nav
 - `AGENT`, `MANAGER`, and `OWNER` can access the member menu for shop, message, MTT, career, and roles; MTT is disabled until tournament endpoints exist
 
 These checks are currently UI-level only. They are not security controls. The backend must re-validate identity and role on every REST and WebSocket endpoint before allowing privileged actions.
@@ -159,7 +168,7 @@ npm install
 npx ng serve
 ```
 
-Open http://localhost:4200. The backend allows local Angular origins by default; configure `CORS_ALLOWED_ORIGINS` for deployment. Set `walletApiBase`, `gameServerBase`, and `clubId` in `public/app-config.json` before startup; the table-only view does not expose development connection fields.
+Open the local URL printed by `npx ng serve` (port 4200 by default). Ensure the backend's `CORS_ALLOWED_ORIGINS` includes that exact origin. Set `walletApiBase`, `gameServerBase`, and `clubId` in `public/app-config.json` before startup; the table-only view does not expose development connection fields.
 
 ## Validation
 

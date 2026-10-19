@@ -1,0 +1,46 @@
+<main class="shop-page">
+  <header class="shop-header">
+    <button class="shop-back" type="button" aria-label="Back to landing page" title="Back" (click)="close.emit()">‹</button>
+    <div class="shop-title"><span>MEMBER STORE</span><h1>Shop</h1></div>
+    <div class="shop-balances" aria-label="Wallet balances unavailable in preview">
+      <div class="shop-balance"><span class="gold-token" aria-hidden="true">G</span><span><small>GOLD</small><strong>—</strong></span></div>
+      <div class="shop-balance"><span class="diamond-token" aria-hidden="true">◆</span><span><small>DIAMONDS</small><strong>—</strong></span></div>
+    </div>
+  </header>
+
+  <p class="shop-preview-note" role="status">Catalog preview · balances and purchases are not connected</p>
+
+  <nav class="shop-tabs" role="tablist" aria-label="Shop categories">
+    <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'gold'" [class.active]="activeTab() === 'gold'" (click)="selectTab('gold')">Gold</button>
+    <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'diamonds'" [class.active]="activeTab() === 'diamonds'" (click)="selectTab('diamonds')">Diamond</button>
+    <button type="button" role="tab" [attr.aria-selected]="activeTab() === 'items'" [class.active]="activeTab() === 'items'" (click)="selectTab('items')">Item</button>
+  </nav>
+
+  <section class="shop-catalog" [class.item-catalog]="activeTab() === 'items'" [attr.aria-label]="activeTab() + ' catalog'">
+    @if (activeTab() === 'diamonds') {
+      <div class="diamond-promo"><span class="promo-sparkle" aria-hidden="true">✦</span><div><small>PREVIEW BUNDLES</small><strong>Bonus Diamond Bundles</strong></div><span class="promo-sparkle" aria-hidden="true">✦</span></div>
+    }
+
+    <div class="product-grid" [class.three-column]="activeTab() === 'items'">
+      @for (product of activeProducts; track product.id; let index = $index) {
+        <article class="shop-product" [class.vip-product]="activeTab() === 'items'">
+          @if (product.duration) { <span class="product-duration">{{ product.duration }}</span> }
+          <div class="product-art" [class]="'product-art art-' + product.artwork + ' art-tier-' + index" aria-hidden="true">
+            @if (product.artwork === 'gold' || product.artwork === 'diamond') {
+              <span class="art-shape"></span><span class="art-shape"></span><span class="art-shape"></span>
+            } @else {
+              <span class="vip-mark">VIP</span>
+            }
+          </div>
+          <strong class="product-amount">{{ product.amount }} @if (product.bonus) { <small>+ {{ product.bonus }} bonus</small> }</strong>
+          @if (product.duration) { <span class="product-title">{{ product.title }}</span> }
+          <button class="product-price" type="button" disabled [attr.aria-label]="productLabel(product)" title="Purchases are not connected">
+            @if (product.priceCurrency === 'diamonds') { <span class="price-diamond" aria-hidden="true">◆</span> }
+            {{ product.price }} @if (product.priceCurrency === 'usd') { <small>USD</small> }
+          </button>
+        </article>
+      }
+    </div>
+  </section>
+  <footer class="shop-footer"><span>Preview only</span><span>Store services unavailable</span></footer>
+</main>

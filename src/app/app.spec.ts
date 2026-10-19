@@ -59,6 +59,42 @@ describe('App', () => {
     expect(app.isMyTurn).toBeFalse();
   });
 
+  it('opens Shop from the member navigation and returns to the landing page', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    TestBed.inject(UserSessionStore).setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
+    app.controlsOpen.set(true);
+    fixture.detectChanges();
+
+    const shopButtons = fixture.nativeElement.querySelectorAll('.member-nav button') as NodeListOf<HTMLButtonElement>;
+    const shopButton = Array.from(shopButtons).find((button) => button.textContent?.includes('SHOP'));
+    expect(shopButton).toBeTruthy();
+    shopButton!.click();
+    fixture.detectChanges();
+    expect(app.screen()).toBe('shop');
+    expect(fixture.nativeElement.querySelector('app-shop')).not.toBeNull();
+
+    (fixture.nativeElement.querySelector('.shop-back') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(app.screen()).toBe('home');
+  });
+
+  it('shows a shop shortcut from the lobby screen', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.screen.set('lobby');
+    fixture.detectChanges();
+
+    const lobbyShopButton = Array.from(fixture.nativeElement.querySelectorAll('button') as HTMLButtonElement[])
+      .find((button: HTMLButtonElement) => button.textContent?.trim() === 'SHOP' || button.textContent?.includes('SHOP'));
+    expect(lobbyShopButton).toBeTruthy();
+    lobbyShopButton!.click();
+    fixture.detectChanges();
+    expect(app.screen()).toBe('shop');
+    expect(fixture.nativeElement.querySelector('app-shop')).not.toBeNull();
+  });
+
   it('does not verify a membership response for a different Firebase user', () => {
     const app = TestBed.createComponent(App).componentInstance;
     const session = TestBed.inject(UserSessionStore);
@@ -572,6 +608,27 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.lobby-screen')).not.toBeNull();
   });
 
+  it('should show Shop and Career below the landing page lobby tile', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+
+    const utilityTiles = fixture.nativeElement.querySelectorAll('.home-utility-tile') as NodeListOf<HTMLButtonElement>;
+    expect(utilityTiles.length).toBe(2);
+    expect(utilityTiles[0].textContent).toContain('SHOP');
+    expect(utilityTiles[1].textContent).toContain('CAREER');
+    expect(fixture.nativeElement.querySelector('.role-stamp')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.role-status')).toBeNull();
+
+    utilityTiles[1].click();
+    expect(app.notice()).toContain('Member career is not available');
+
+    utilityTiles[0].click();
+    fixture.detectChanges();
+    expect(app.screen()).toBe('shop');
+    expect(fixture.nativeElement.querySelector('app-shop')).not.toBeNull();
+  });
+
   it('should expose the table wizard to all roles while reserving creation for owners and managers', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
@@ -643,17 +700,20 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.lobby-shortcuts')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('[aria-label="Union tables"]')).not.toBeNull();
     expect((fixture.nativeElement.querySelector('[aria-label="Create a new table"]') as HTMLButtonElement).disabled).toBeFalse();
+    expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.lobby-bottom-menu')).not.toBeNull();
+
+    (fixture.nativeElement.querySelector('.lobby-bottom-menu') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')).not.toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('.lobby-shortcut-bar small').length).toBe(7);
+
     let layoutToggle = fixture.nativeElement.querySelector('[aria-label="Switch to list view"]') as HTMLButtonElement;
     expect(layoutToggle).not.toBeNull();
     expect(layoutToggle.textContent?.trim()).toBe('☰');
 
     expect(fixture.nativeElement.querySelector('.lobby-nav')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.lobby-bottom-menu')).not.toBeNull();
-    (fixture.nativeElement.querySelector('.lobby-bottom-menu') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.lobby-nav')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.lobby-shortcut-bar')).not.toBeNull();
-    expect(fixture.nativeElement.querySelectorAll('.lobby-shortcut-bar small').length).toBe(5);
+    expect(fixture.nativeElement.querySelector('.lobby-bottom-menu')).toBeNull();
 
     layoutToggle.click();
     fixture.detectChanges();
@@ -726,7 +786,9 @@ describe('App', () => {
 
     app.lobbyQuickMenuOpen.set(true);
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.lobby-shortcut-bar button:nth-child(5)') as HTMLButtonElement).click();
+    const adminShortcut = Array.from(fixture.nativeElement.querySelectorAll('.lobby-shortcut-bar > button') as NodeListOf<HTMLButtonElement>)
+      .find((button) => button.textContent?.includes('Admin')) as HTMLButtonElement;
+    adminShortcut.click();
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -1011,8 +1073,8 @@ describe('App', () => {
 
     session.setVerifiedMember('player-1', 'Player', 'PLAYER');
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.member-nav button').length).toBe(1);
-    expect(fixture.nativeElement.querySelector('.member-nav button')?.textContent).toContain('ROLES');
+    expect(fixture.nativeElement.querySelectorAll('.member-nav button').length).toBe(2);
+    expect(fixture.nativeElement.querySelector('.member-nav button:last-child')?.textContent).toContain('ROLES');
     expect(fixture.nativeElement.querySelector('.role-cashier-button')).toBeNull();
 
     session.setVerifiedMember('agent-1', 'Agent', 'AGENT');
