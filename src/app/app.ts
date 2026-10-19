@@ -645,15 +645,11 @@ export class App implements OnInit, OnDestroy {
 
   openCreateClub(): void {
     this.homeMenuOpen.set(false);
-    if (!this.session.firebaseUid() && !this.session.memberId()) {
-      this.notice.set('Sign in before creating a local preview club.');
-      return;
-    }
-
+    this.clubProfileOpen.set(false);
     this.clubNameDraft.set('');
     this.clubNoticeDraft.set('');
     this.selectedClubLogo.set('lions');
-    this.clubProfileOpen.set(true);
+    this.notice.set('Preview only: club creation is not live yet. The backend self-service flow is POST /clubs and the local preview flow is disabled.');
   }
 
   saveClubProfile(): void {

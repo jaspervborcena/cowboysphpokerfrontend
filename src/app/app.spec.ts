@@ -138,21 +138,18 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.policy-status-panel')).toBeNull();
   });
 
-  it('allows a signed-in non-owner to create a local preview club without changing their backend role', () => {
+  it('blocks the local preview club flow and shows a demo-only notice instead', () => {
     const app = TestBed.createComponent(App).componentInstance;
     const session = TestBed.inject(UserSessionStore);
     session.setVerifiedMember('player-1', 'Player', 'PLAYER', 'firebase-token');
 
     app.openCreateClub();
-    expect(app.clubProfileOpen()).toBeTrue();
-    app.clubNameDraft.set('Player Preview Club');
-    app.saveClubProfile();
 
     expect(app.clubProfileOpen()).toBeFalse();
-    expect(app.homeClubCards.some((club) => club.name === 'Player Preview Club' && club.id.startsWith('local-club-'))).toBeTrue();
+    expect(app.homeClubCards.some((club) => club.name === 'Player Preview Club' && club.id.startsWith('local-club-'))).toBeFalse();
     expect(session.role()).toBe('PLAYER');
     expect(session.canManageClub()).toBeFalse();
-    expect(app.notice()).toContain('Local preview club created in this browser');
+    expect(app.notice()).toContain('Preview only');
     localStorage.removeItem('cowboys-local-clubs');
   });
 
@@ -899,7 +896,7 @@ describe('App', () => {
     expect(app.notice()).toContain('preview room');
   });
 
-  it('should open the home menu and club profile from the owner bootstrap flow', () => {
+  it('keeps the home menu in demo-only mode instead of creating a live club', () => {
     localStorage.removeItem('cowboys-local-clubs');
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
@@ -912,49 +909,12 @@ describe('App', () => {
 
     (fixture.nativeElement.querySelector('[role="menuitem"]') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('#club-profile-title')?.textContent).toContain('Club Profile');
-    expect(fixture.nativeElement.querySelectorAll('.club-logo-picker button').length).toBe(5);
 
-    const nameInput = fixture.nativeElement.querySelector('input[name="clubName"]') as HTMLInputElement;
-    nameInput.value = 'Harbor Cards';
-    nameInput.dispatchEvent(new Event('input'));
-    const noticeInput = fixture.nativeElement.querySelector('textarea[name="clubNotice"]') as HTMLTextAreaElement;
-    noticeInput.value = 'Welcome to the table';
-    noticeInput.dispatchEvent(new Event('input'));
-    (fixture.nativeElement.querySelector('.club-profile-save') as HTMLButtonElement).click();
-    fixture.detectChanges();
-
+    expect(fixture.nativeElement.querySelector('#club-profile-title')).toBeNull();
     expect(fixture.nativeElement.querySelector('.club-profile-dialog')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.club-display-name')?.textContent).toContain('Harbor Cards');
-    expect(fixture.nativeElement.querySelector('.club-poster small')?.textContent).toContain('Welcome to the table');
-
-    (fixture.nativeElement.querySelector('.club-display') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.lobby-screen')).not.toBeNull();
-    expect(fixture.nativeElement.querySelector('.lobby-club-name')?.textContent).toContain('Harbor Cards');
-    expect(fixture.nativeElement.querySelector('.lobby-club-name')?.textContent).toContain('OWNER');
-    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).toContain('LOCAL TREASURY');
-    expect(fixture.nativeElement.querySelector('.lobby-wallet-balance')?.textContent).toContain('10,000');
-    expect(fixture.nativeElement.querySelector('.create-table-card')).not.toBeNull();
-
-    (fixture.nativeElement.querySelector('.create-table-card') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    (fixture.nativeElement.querySelector('[data-game="no_limit_texas_holdem"]') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    const tableName = fixture.nativeElement.querySelector('input[name="templateTableName"]') as HTMLInputElement;
-    tableName.value = 'Harbor Main';
-    tableName.dispatchEvent(new Event('input'));
-    (fixture.nativeElement.querySelector('.table-template-editor > .table-wizard-actions button:last-child') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.lobby-table-card h3')?.textContent).toContain('Harbor Main');
-    const enterTableButton = fixture.nativeElement.querySelector('.lobby-table-card .lobby-table-actions button') as HTMLButtonElement;
-    expect(enterTableButton.disabled).toBeFalse();
-    expect(enterTableButton.textContent).toContain('Enter table');
-    enterTableButton.click();
-    fixture.detectChanges();
-    expect(app.screen()).toBe('table');
-    expect(app.localPreviewTable()).toBeTrue();
-    expect(app.snapshot()?.table_id).toBe('harbor-main');
+    expect(app.notice()).toContain('Preview only');
+    expect(app.notice()).toContain('POST /clubs');
+    expect(app.homeClubCards.some((club) => club.id.startsWith('local-club-'))).toBeFalse();
     localStorage.removeItem('cowboys-local-clubs');
   });
 

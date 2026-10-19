@@ -143,6 +143,16 @@ describe('WalletDashboardComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Agent and player roles use the same member balances');
   });
 
+  it('states that final wallet balances are controlled by the backend', async () => {
+    const fixture = TestBed.createComponent(WalletDashboardComponent);
+    fixture.componentInstance.initialScope = 'club';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('The server validates funds, role, and membership before it finalizes balances.');
+  });
+
   it('rejects a member wallet response with invalid balances', async () => {
     api.getMemberWalletSummary.and.returnValue(of({
       club_id: 'demo',

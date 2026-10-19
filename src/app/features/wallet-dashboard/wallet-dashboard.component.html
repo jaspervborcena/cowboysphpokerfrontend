@@ -41,6 +41,7 @@
         </div>
         <span>Member {{ wallet.user_id }} · Club {{ wallet.club_id }}</span>
         <p class="wallet-balance-note">Agent and player roles use the same member balances in this API.</p>
+        <p class="wallet-balance-note">The server validates funds, role, and membership before it finalizes balances.</p>
       </section>
 
       @if (clubTreasury(); as treasury) {

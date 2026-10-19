@@ -13,8 +13,8 @@
         <div class="hall-icons"><button type="button" aria-label="Home" aria-haspopup="menu" [attr.aria-expanded]="homeMenuOpen()" (click)="toggleHomeMenu()">⌂</button><button type="button" aria-label="Search club">⌕</button></div>
         @if (homeMenuOpen()) {
           <div class="hall-home-menu" role="menu" aria-label="Home actions">
-            <button type="button" role="menuitem" title="Create a local preview club" (click)="openCreateClub()"><span aria-hidden="true">♜</span>Create A Club</button>
-            <button type="button" role="menuitem" (click)="showFriendTableNotice()"><span aria-hidden="true">♧</span>Friend Table</button>
+            <button type="button" role="menuitem" title="Preview only: the live flow is POST /clubs" (click)="openCreateClub()"><span aria-hidden="true">♜</span>Preview: Create A Club</button>
+            <button type="button" role="menuitem" title="Preview only: friend table flow is not live yet" (click)="showFriendTableNotice()"><span aria-hidden="true">♧</span>Preview: Friend Table</button>
           </div>
         }
         <div class="club-sign"><span>{{ homeClubCards[clubCardIndex()].kind === 'global' ? 'GLOBAL PLAY' : 'YOUR CLUBS' }}</span><strong>COWBOYS</strong><b>♢ 8 ♢</b></div>
